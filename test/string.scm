@@ -9,16 +9,23 @@
 ;;-------------------------------------------------------------------
 (test-section "builtins")
 
+; 連結
 (test* "string" "abcdefg" (string #\a #\b #\c #\d #\e #\f #\g))
+; 空
 (test* "string" "" (string))
+; (strin "文字列")は存在しない
+; a list of chars -> string
 (test* "list->string" "abcdefg"
        (list->string '(#\a #\b #\c #\d #\e #\f #\g)))
+; nullは空文字
 (test* "list->string" "" (list->string '()))
 (test* "make-string" "aaaaa" (make-string 5 #\a))
 (test* "make-string" "" (make-string 0 #\a))
 
+;"文字列"は固定
 (test* "immutable" #t (string-immutable? "abcde"))
 (test* "immutable" #t (string-immutable? ""))
+; コピーした文字は可変
 (test* "immutable" #f (string-immutable? (string-copy "abcde")))
 (test* "immutable" #f (string-immutable? (string #\a #\b)))
 (test* "immutable" #f (string-immutable? (string)))

@@ -140,7 +140,7 @@ static void promise_print(ScmObj obj, ScmPort *port, ScmWriteContext *ctx)
 SCM_DEFINE_BUILTIN_CLASS_SIMPLE(Scm_PromiseClass, promise_print);
 
 /*
- * promise object
+ * promise object (delay??)
  */
 
 ScmObj Scm_MakePromise(int forced, ScmObj code)
@@ -214,11 +214,11 @@ static ScmObj force_cc(ScmObj result, void **data)
 ScmObj Scm_Force(ScmObj obj)
 {
     if (!SCM_PROMISEP(obj)) {
-        SCM_RETURN(obj);
+      SCM_RETURN(obj);  // そのまま返す(force 1) => 1
     } else {
         ScmPromiseContent *c = SCM_PROMISE(obj)->content;
 
-        if (c->forced) SCM_RETURN(c->code);
+        if (c->forced) SCM_RETURN(c->code);  // forceされたオブジェクトはキャッシュされてるみたい?
         else {
             ScmVM *vm = Scm_VM();
             void *data[2];
@@ -229,6 +229,7 @@ ScmObj Scm_Force(ScmObj obj)
                 /* we already have the lock and evaluating this promise. */
                 c->count++;
                 Scm_VMPushCC(force_cc, data, 2);
+                // codeをVM上で実行せよってこと?
                 SCM_RETURN(Scm_VMApply0(c->code));
             } else {
                 /* TODO: check if the executing thread terminates

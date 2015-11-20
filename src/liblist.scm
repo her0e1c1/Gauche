@@ -242,6 +242,7 @@
         [(pair? l) #f]
         [else (error "argument must be a list, but got:" l)]))
 
+; 普通に定義してるみたい
 (define cons* list*)                    ;srfi-1
 
 (define (last lis) (car (last-pair lis))) ;srfi-1

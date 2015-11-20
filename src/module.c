@@ -272,6 +272,7 @@ static ScmGloc *search_binding(ScmModule *module, ScmSymbol *symbol,
     /* First, search from the specified module.  In this phase, we just ignore
        phantom bindings, for we'll search imported bindings later anyway. */
     if (!exclude_self) {
+      // モジュールは、内・外ある
         ScmObj v = Scm_HashTableRef(
             external_only? module->external : module->internal,
             SCM_OBJ(symbol), SCM_FALSE);
@@ -351,15 +352,19 @@ static ScmGloc *search_binding(ScmModule *module, ScmSymbol *symbol,
     return NULL;
 }
 
+// global変数参照(glocを返す)
 ScmGloc *Scm_FindBinding(ScmModule *module, ScmSymbol *symbol, int flags)
 {
     int stay_in_module = flags&SCM_BINDING_STAY_IN_MODULE;
     int external_only = flags&SCM_BINDING_EXTERNAL;
     ScmGloc *gloc = NULL;
+    // マルチスレッドで、GLOCの参照が変化しないようにしてる？(多分)
 
-    SCM_INTERNAL_MUTEX_SAFE_LOCK_BEGIN(modules.mutex);
+    // 束縛テーブルのアクセス時に そのモジュールのロックを獲得(以前)
+    // モジュールアクセス全てに 共通するロックをひとつ作って、Scm_FindBindingはそれひとつだけをロック するよう
+    SCM_INTERNAL_MUTEX_SAFE_LOCK_BEGIN(modules.mutex);  // mutexはロックだ(たしか)
     gloc = search_binding(module, symbol, stay_in_module, external_only, FALSE);
-    SCM_INTERNAL_MUTEX_SAFE_LOCK_END();
+    SCM_INTERNAL_MUTEX_SAFE_LOCK_END();  // 解放 TODO: なぜロックが必要?
     return gloc;
 }
 

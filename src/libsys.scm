@@ -1147,6 +1147,9 @@
         (return '#f))
       (return '#t))))
 
+; ::intで型指定
+; (define-cproc NAME BODY)  :: <boolean>の戻り値
+; libsys.cを自動生成する  
 (define-cproc sys-isatty (port_or_fd) ::<boolean>
   (let* ([fd::int (Scm_GetPortFd port_or_fd FALSE)])
     (return (and (>= fd 0) (isatty fd)))))

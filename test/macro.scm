@@ -67,6 +67,7 @@
            (,(r 'if) it ,then ,else))))))
 
 (test "aif - basic" 4 (^[] (er-aif (+ 1 2) (+ it 1) #f)))
+; it == 3
 (test "aif - basic" 5 (^[] (let ((it 999)) (er-aif (+ 1 2) (+ it 2) #f))))
 
 (test "aif - hygene" 6
@@ -227,6 +228,7 @@
 
 (test-section "basic expansion")
 
+; 関数の引数の取り方(atomに対して)に合致したものを返す(ただし内側の評価はしないみたい)
 (define-syntax simple (syntax-rules ()
                         ((_ "a" ?a) (a ?a))
                         ((_ "b" ?a) (b ?a))
@@ -1359,17 +1361,20 @@
 (define-macro (foo x)   `(bar ,x ,x))
 (define-macro (bar x y) `(list ,x ,x ,y ,y))
 
+; (bar 1 1) => (list 1 1 1 1) (最後まで展開)
 (test "macroexpand" '(list 1 1 1 1)
       (lambda () (macroexpand '(foo 1))))
+; (foo 1) => (bar 1 1) と1回まで
 (test "macroexpand-1" '(bar 1 1)
       (lambda () (macroexpand-1 '(foo 1))))
 
 ;;----------------------------------------------------------------------
 ;; not allowing first-class macro
+;; :TODO: first-class macroとは?
 
 (test-section "failure cases")
 
-(define-macro (bad-if a b c) `(,if ,a ,b ,c))
+(define-macro (bad-if a b c) `(,if ,a ,b ,c))  ; ifは展開できない
 (test "reject first-class syntax usage" (test-error)
       (lambda () (bad-if #t 'a 'b)))
 

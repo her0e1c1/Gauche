@@ -168,15 +168,16 @@ int Scm_GetPortFd(ScmObj port_or_fd, int needfd)
 {
     int fd = -1;
     if (SCM_INTP(port_or_fd)) {
-        fd = SCM_INT_VALUE(port_or_fd);
+      fd = SCM_INT_VALUE(port_or_fd);  // 整数はそのまま返す
     } else if (SCM_PORTP(port_or_fd)) {
-        fd = Scm_PortFileNo(SCM_PORT(port_or_fd));
+      fd = Scm_PortFileNo(SCM_PORT(port_or_fd));  // (standard-input-port)など
         if (fd < 0 && needfd) {
             Scm_Error("the port is not associated with a system file descriptor: %S",
                       port_or_fd);
         }
     } else {
-        Scm_Error("port or small integer required, but got %S", port_or_fd);
+      // s '(sys-isatty #\a)' みたいに文字列
+      Scm_Error("port or small integer required, but got %S", port_or_fd);
     }
     return fd;
 }
