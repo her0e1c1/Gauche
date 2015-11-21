@@ -383,10 +383,13 @@ ScmObj Scm_ReverseX(ScmObj list)
  *    Note that i is C-INTEGER.  If i is out of bound, signal error.
  */
 
+// iに-1を指定すると、負の数なのでその時点でエラー(要素数より多くてもエラー)
+// (drop '(1 2 3) 2)  => (3)
 ScmObj Scm_ListTail(ScmObj list, ScmSmallInt i, ScmObj fallback)
 {
     if (i < 0) goto err;
     ScmSmallInt cnt = i;
+    // iが末尾のときもありうるので、O(n)
     while (cnt-- > 0) {
         if (!SCM_PAIRP(list)) goto err;
         list = SCM_CDR(list);

@@ -72,8 +72,8 @@
 */
 typedef struct ScmStringBodyRec {
     unsigned int flags;
-    unsigned int length;
-    unsigned int size;
+  unsigned int length;  // INCOMPLETE の場合-1
+  unsigned int size;  // マルチバイトでない場合 length == size
     const char *start;
 } ScmStringBody;
 
@@ -81,12 +81,15 @@ typedef struct ScmStringBodyRec {
 #define SCM_STRING_MAX_SIZE    SCM_SMALL_INT_MAX
 #define SCM_STRING_MAX_LENGTH  SCM_SMALL_INT_MAX
 #else /*SIZEOF_LONG > 4*/
+// size/lenも両方同じみたい
 #define SCM_STRING_MAX_SIZE    INT_MAX
 #define SCM_STRING_MAX_LENGTH  INT_MAX
 #endif
 
+// String => StringBody
 struct ScmStringRec {
     SCM_HEADER;
+  // bodyのアクセスはマクロを使うので、どっちを参照するかは呼び出し元では気にしない
     const ScmStringBody *body;  /* may be NULL if we use initial body. */
     ScmStringBody initialBody;  /* initial body */
 };
@@ -97,6 +100,8 @@ struct ScmStringRec {
 enum ScmStringFlags {
     SCM_STRING_IMMUTABLE  = (1L<<0),     /* [C,R] The string is immutable. */
     SCM_STRING_INCOMPLETE = (1L<<1),     /* [C,R] The string is incomplete. */
+    // '\0'で終了しているmarkみたい (ascii文字ならこれが簡単)
+    // マルチバイトでは、0が文字列の途中に存在する場合がある
     SCM_STRING_TERMINATED = (1L<<2),     /* [R] The string content is
                                             NUL-terminated.  This flag is used
                                             internally. */
@@ -302,7 +307,7 @@ SCM_EXTERN ScmObj  Scm_MaybeSubstring(ScmString *x, ScmObj start, ScmObj end);
     ScmString name = SCM_STRING_CONST_INITIALIZER(str, len, siz)
 
 /*
- * DStrings
+ * DStrings 補助の構造
  *   Auxiliary structure to construct a string of unknown length.
  *   This is not an ScmObj.   See string.c for details.
  */
@@ -316,11 +321,14 @@ typedef struct ScmDStringChunkRec {
 } ScmDStringChunk;
 
 typedef struct ScmDStringChainRec {
+  // 型は同じ、chainは、複数のchunkを持つlist
+  // dataは固定長みたいだね32byteの文字列つまり4byteか、1文字ってことね!
     struct ScmDStringChainRec *next;
     ScmDStringChunk *chunk;
 } ScmDStringChain;
 
 struct ScmDStringRec {
+  // initとanchorがあるのね
     ScmDStringChunk init;       /* initial chunk */
     ScmDStringChain *anchor;    /* chain of extra chunks */
     ScmDStringChain *tail;      /* current chunk */
@@ -354,9 +362,12 @@ SCM_EXTERN void        Scm_DStringPutc(ScmDString *dstr, ScmChar ch);
     do {                                                \
         ScmChar ch_DSTR = (ch);                         \
         ScmDString *d_DSTR = (dstr);                    \
+        // 文字数(currentを追加したら移動させる)
         int siz_DSTR = SCM_CHAR_NBYTES(ch_DSTR);        \
+        // 文字列も動的にメモリを増やすみたい
         if (d_DSTR->current + siz_DSTR > d_DSTR->end)   \
             Scm__DStringRealloc(d_DSTR, siz_DSTR);      \
+        // putは文字コードによって異なる動作
         SCM_CHAR_PUT(d_DSTR->current, ch_DSTR);         \
         d_DSTR->current += siz_DSTR;                    \
         if (d_DSTR->length >= 0) d_DSTR->length++;      \
@@ -380,6 +391,7 @@ typedef struct ScmStringPointerRec {
     int length;
     int size;
     const char *start;
+  // この二つが追加されてるっぽい OBSOLETED になるみたい
     int index;
     const char *current;
 } ScmStringPointer;

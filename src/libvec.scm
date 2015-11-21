@@ -75,6 +75,7 @@
   (vec::<vector> :optional (start::<fixnum> 0) (end::<fixnum> -1))
   Scm_VectorToList)
 
+;; :optionalには、その引数が指定されていない場合の初期値を設定できるのね
 (define-cproc list->vector
   (list::<list> :optional (start::<fixnum> 0) (end::<fixnum> -1))
   Scm_ListToVector)

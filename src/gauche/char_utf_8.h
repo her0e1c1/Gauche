@@ -171,19 +171,45 @@ char Scm_CharSizeTable[256] = {
 
 ScmChar Scm_CharUtf8Getc(const unsigned char *cp)
 {
-    ScmChar ch;
+  ScmChar ch;  // long => 64bitだと思われる
     unsigned char *ucp = (unsigned char *)cp;
+    // 1byte = 8bit
     unsigned char first = *ucp++;
-    if (first < 0x80) { return first; }
+    if (first < 0x80) { return first; }  // 0x80までは1byte文字なんだ!
+    // '\x70'.decode("utf-8")  => u"p"
+    // 0x00~0x80の0から128-1までの文字は1byteで扱うし、
+    // 0b0000 ~ 0b1111の下4bitしか使わない場合
+    // これらの文字は、おそらく、2byte目以降に出現してはいけないんじゃないかな.
+
+    // 少なくとも、バイト列は、そのまま使うのではなく、1byteずつ変換するみたい
     else if (first < 0xc0) { return SCM_CHAR_INVALID; }
     else if (first < 0xe0) {
-        ch = first&0x1f;
+      // first == 0x91のとき
+      // 0x91 = 0b 1001 0001
+      // ch = 0b1 0001
+      // 0b 10 0100 0100 0000 
+      // 2byte目は6bit使う
+      ch = first&0x1f; // 5bit目までとるみたい
         if (*ucp < 0x80 || *ucp >= 0xc0) return SCM_CHAR_INVALID;
-        ch = (ch<<6) | (*ucp++&0x3f);
+        ch = (ch<<6) | (*ucp++&0x3f); // 11 1111の6bitでandとる、だから、右にずらしてる
+        // 右shiftして、情報が消えて、127以下になった場合
+        // firstの下2bitしか使わないみたい
         if (ch < 0x80) return SCM_CHAR_INVALID;
+        // ただ\x91\x11とかpythonエラーです
     }
     else if (first < 0xf0) {
         ch = first&0x0f;
+        // 変換方法
+        // '\xe3\x81\x82' "あ"
+        // \xe3 & 0x0f => 3
+        // 3 << 6 => 192
+        //  0x81 & 0x3f  => 1
+        // 192 | 1 => 193
+        //  0x82& 0x3f  => 2
+        // 193 << 6 => 12352
+        // 12352 | 2 => 12354
+        // (((((0xe3&0x0f) << 6)| (0x81&0x3f))<< 6)| (0x82&0xf))
+        // => 12354 => 0x3042 => あ
         if (*ucp < 0x80 || *ucp >= 0xc0) return SCM_CHAR_INVALID;
         ch = (ch<<6) | (*ucp++&0x3f);
         if (*ucp < 0x80 || *ucp >= 0xc0) return SCM_CHAR_INVALID;
@@ -232,6 +258,7 @@ ScmChar Scm_CharUtf8Getc(const unsigned char *cp)
     return ch;
 }
 
+// Getcの逆関数 1 * long => 複数 * charに変換
 void Scm_CharUtf8Putc(unsigned char *cp, ScmChar ch)
 {
     if (ch < 0x80) {

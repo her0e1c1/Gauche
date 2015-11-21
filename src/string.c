@@ -43,6 +43,7 @@ static void string_print(ScmObj obj, ScmPort *port, ScmWriteContext *ctx);
 SCM_DEFINE_BUILTIN_CLASS(Scm_StringClass, string_print, NULL, NULL, NULL,
                          SCM_CLASS_SEQUENCE_CPL);
 
+// INT_MAX程度
 #define CHECK_SIZE(siz)                                         \
     do {                                                        \
         if ((siz) > SCM_STRING_MAX_SIZE) {                      \
@@ -55,6 +56,7 @@ SCM_DEFINE_BUILTIN_CLASS(Scm_StringClass, string_print, NULL, NULL, NULL,
 static ScmString *make_str(ScmSmallInt len, ScmSmallInt siz,
                            const char *p, int flags)
 {
+  // 不完全文字列は、エンコードできなかった文字列
     if (len < 0) flags |= SCM_STRING_INCOMPLETE;
     if (flags & SCM_STRING_INCOMPLETE) len = siz;
 
@@ -66,11 +68,11 @@ static ScmString *make_str(ScmSmallInt len, ScmSmallInt siz,
     }
 
     ScmString *s = SCM_NEW(ScmString);
-    SCM_SET_CLASS(s, SCM_CLASS_STRING);
+    SCM_SET_CLASS(s, SCM_CLASS_STRING);  //malloc => 初期化?
     s->body = NULL;
     s->initialBody.flags = flags & SCM_STRING_FLAG_MASK;
-    s->initialBody.length = len;
-    s->initialBody.size = siz;
+    s->initialBody.length = len;  // 文字数
+    s->initialBody.size = siz;  // byte数
     s->initialBody.start = p;
     return s;
 }
@@ -86,11 +88,14 @@ void Scm_StringDump(FILE *out, ScmObj str)
 
     fprintf(out, "STR(len=%d,siz=%ld) \"", SCM_STRING_BODY_LENGTH(b), s);
     for (int i=0; i < DUMP_LENGTH && s > 0;) {
-        int n = SCM_CHAR_NFOLLOWS(*p) + 1;
+      // nは、1文字のbyte数 あ => 3byteみたいな
+      int n = SCM_CHAR_NFOLLOWS(*p) + 1;  // #\あ
         for (; n > 0 && s > 0; p++, n--, s--, i++) {
+          // 1byteずつ出力(lenは使わずbyteのsizを一文字ずつ)
             putc(*p, out);
         }
     }
+    // DUMP_LENGTH以上なら...で切り上げる(ここはLENGTHみたい)
     if (s > 0) {
         fputs("...\"\n", out);
     } else {
@@ -103,6 +108,8 @@ void Scm_StringDump(FILE *out, ScmObj str)
    argument is in valid range.) */
 char *Scm_StrdupPartial(const char *src, size_t size)
 {
+  // 文字列のcopy (memcpyなので連続したメモリを確保)
+  // '\0'でターミネートされた文字列となる
     char *dst = SCM_NEW_ATOMIC_ARRAY(char, size+1);
     memcpy(dst, src, size);
     dst[size] = '\0';
@@ -117,6 +124,7 @@ char *Scm_StrdupPartial(const char *src, size_t size)
 
 /* Calculate both length and size of C-string str.
    If str is incomplete, *plen gets -1. */
+// strの文字の長さとサイズを取得
 static inline ScmSmallInt count_size_and_length(const char *str,
                                                 ScmSmallInt *psize, /* out */
                                                 ScmSmallInt *plen)  /* out */
@@ -129,6 +137,7 @@ static inline ScmSmallInt count_size_and_length(const char *str,
         len++;
         size++;
         while (i-- > 0) {
+          // 不適切な文字みたい
             if (!*p++) { len = -1; goto eos; }
             size++;
         }
@@ -140,6 +149,7 @@ static inline ScmSmallInt count_size_and_length(const char *str,
 }
 
 /* Calculate length of known size string.  str can contain NUL character. */
+// sizeは呼び出し元が指定(不適切な値は-1)
 static inline ScmSmallInt count_length(const char *str, ScmSmallInt size)
 {
     ScmSmallInt count = 0;
@@ -148,6 +158,7 @@ static inline ScmSmallInt count_length(const char *str, ScmSmallInt size)
         int i = SCM_CHAR_NFOLLOWS(c);
         if (i < 0 || i > size) return -1;
         ScmChar ch;
+        // Stringの先頭pointerのcharを取得
         SCM_CHAR_GET(str, ch);
         if (ch == SCM_CHAR_INVALID) return -1;
         count++;
@@ -162,6 +173,7 @@ static inline ScmSmallInt count_length(const char *str, ScmSmallInt size)
    If the string is incomplete, returns -1. */
 int Scm_MBLen(const char *str, const char *stop)
 {
+  // stopによってsizeが変わる
     ScmSmallInt size = (stop == NULL)? strlen(str) : (stop - str);
     ScmSmallInt len = count_length(str, size);
     if (len > SCM_STRING_MAX_LENGTH) {
@@ -175,9 +187,13 @@ int Scm_MBLen(const char *str, const char *stop)
  */
 
 /* General constructor. */
+// (make-string len)
+// (make-bype-string size)
 ScmObj Scm_MakeString(const char *str, ScmSmallInt size, ScmSmallInt len,
                       int flags)
 {
+  // strは""で一回でアロケートするみたい!
+  // ここで呼ぶので、make_stringはprivateみたい
     flags &= ~SCM_STRING_TERMINATED;
 
     if (size < 0) {
@@ -191,6 +207,7 @@ ScmObj Scm_MakeString(const char *str, ScmSmallInt size, ScmSmallInt len,
     ScmString *s;
     if (flags & SCM_STRING_COPYING) {
         flags |= SCM_STRING_TERMINATED; /* SCM_STRDUP_PARTIAL terminates the result str */
+        // copyなので、strとは別のpointerを渡す必要あり
         s = make_str(len, size, SCM_STRDUP_PARTIAL(str, size), flags);
     } else {
         s = make_str(len, size, str, flags);
@@ -198,17 +215,23 @@ ScmObj Scm_MakeString(const char *str, ScmSmallInt size, ScmSmallInt len,
     return SCM_OBJ(s);
 }
 
+// (string-fill! "orange" #\X 2 4) ; immutable error
+// (string-fill! (make-string 5 #\a) #\X 2 4)  ; aaXXa
 ScmObj Scm_MakeFillString(ScmSmallInt len, ScmChar fill)
 {
     if (len < 0) Scm_Error("length out of range: %d", len);
+    // charオブジェのbyte数取得
     ScmSmallInt csize = SCM_CHAR_NBYTES(fill);
-    CHECK_SIZE(csize*len);
+    CHECK_SIZE(csize*len);  // MAX越えない
+    // メモリ確保 = 文字 * 文字数
     char *ptr = SCM_NEW_ATOMIC2(char *, csize*len+1);
     char *p = ptr;
+    // 一文字ずつcharをセットする
     for (int i=0; i<len; i++, p+=csize) {
         SCM_CHAR_PUT(p, fill);
     }
     ptr[csize*len] = '\0';
+    // *char => stringに変換
     return SCM_OBJ(make_str(len, csize*len, ptr, SCM_STRING_TERMINATED));
 }
 
@@ -217,7 +240,10 @@ ScmObj Scm_ListToString(ScmObj chars)
     ScmSmallInt size = 0, len = 0;
 
     ScmObj cp;
+    // はじめにlenとsizを計算(必要なメモリを算出が先)
     SCM_FOR_EACH(cp, chars) {
+      // charでないものがlistに混ざっていた
+      // (list->string '(#\a 1))
         if (!SCM_CHARP(SCM_CAR(cp)))
             Scm_Error("character required, but got %S", SCM_CAR(cp));
         ScmChar ch = SCM_CHAR_VALUE(SCM_CAR(cp));
@@ -227,12 +253,15 @@ ScmObj Scm_ListToString(ScmObj chars)
     }
     char *buf = SCM_NEW_ATOMIC2(char *, size+1);
     char *bufp = buf;
+
+    // 確保したメモリに代入していく
     SCM_FOR_EACH(cp, chars) {
         ScmChar ch = SCM_CHAR_VALUE(SCM_CAR(cp));
         SCM_CHAR_PUT(bufp, ch);
         bufp += SCM_CHAR_NBYTES(ch);
     }
     *bufp = '\0';
+    // (list->string)は可変文字列として扱うみたい
     return Scm_MakeString(buf, size, len, 0);
 }
 
@@ -241,17 +270,20 @@ ScmObj Scm_ListToString(ScmObj chars)
 char *Scm_GetString(ScmString *str)
 {
     const ScmStringBody *b = SCM_STRING_BODY(str);
+    // copyしたものを返す
     return SCM_STRDUP_PARTIAL(SCM_STRING_BODY_START(b), SCM_STRING_BODY_SIZE(b));
 }
 
 /* Common routine for Scm_GetStringConst and Scm_GetStringContent */
+// Scm -> char* を返す
 static const char *get_string_from_body(const ScmStringBody *b)
 {
     ScmSmallInt size = SCM_STRING_BODY_SIZE(b);
     if (SCM_STRING_BODY_HAS_FLAG(b, SCM_STRING_TERMINATED)) {
         /* we can use string data as C-string */
-        return SCM_STRING_BODY_START(b);
+      return SCM_STRING_BODY_START(b);  // char* b->start
     } else {
+      // copyして'\0'で終端させる
         char *p = SCM_STRDUP_PARTIAL(SCM_STRING_BODY_START(b), size);
         /* kludge! This breaks 'const' qualification, but we know
            this is an idempotent operation from the outside.  Note that
@@ -269,10 +301,14 @@ static const char *get_string_from_body(const ScmStringBody *b)
    would be a security risk.
    TODO: Let the string body have a flag so that we don't need
    to scan the string every time.
+
+   c-stringなので, 0が途中に入ってはいけない
+   threadを利用しているので、文字列に変更があった場合はpoitnerを変更するらしい
 */
 const char *Scm_GetStringConst(ScmString *str)
 {
     const ScmStringBody *b = SCM_STRING_BODY(str);
+    // cpe 'P(memchr("abc", 0x61, 3))
     if (memchr(SCM_STRING_BODY_START(b), 0, SCM_STRING_BODY_SIZE(b))) {
         Scm_Error("A string containing NUL character is not allowed: %S",
                   SCM_OBJ(str));
@@ -288,6 +324,7 @@ const char *Scm_GetStringContent(ScmString *str,
                                  unsigned int *plength, /* out */
                                  unsigned int *pflags)  /* out */
 {
+  // ScmStringから、それぞれの要素を取得
     const ScmStringBody *b = SCM_STRING_BODY(str);
     if (psize)   *psize = SCM_STRING_BODY_SIZE(b);
     if (plength) *plength = SCM_STRING_BODY_LENGTH(b);
@@ -314,6 +351,8 @@ ScmObj Scm_CopyStringWithFlags(ScmString *x, int flags, int mask)
     const ScmStringBody *b = SCM_STRING_BODY(x);
     ScmSmallInt size = SCM_STRING_BODY_SIZE(b);
     ScmSmallInt len  = SCM_STRING_BODY_LENGTH(b);
+    // pointerを渡しているので、SCMオブジェの作成するが、
+    // startの文字列は他のオブジェクトにも影響するみたい?
     const char *start = SCM_STRING_BODY_START(b);
     int newflags = ((SCM_STRING_BODY_FLAGS(b) & ~mask)
                     | (flags & mask));
@@ -323,6 +362,7 @@ ScmObj Scm_CopyStringWithFlags(ScmString *x, int flags, int mask)
 
 ScmObj Scm_StringCompleteToIncomplete(ScmString *x)
 {
+  // flagに INCOMPLETEを指定したものにしたオブジェクトを返す
     return Scm_CopyStringWithFlags(x, SCM_STRING_INCOMPLETE,
                                    SCM_STRING_INCOMPLETE);
 }
@@ -333,6 +373,7 @@ ScmObj Scm_StringIncompleteToComplete(ScmString *x,
 {
     ScmObj r = SCM_FALSE;
 
+    // 不完全から完全にするには、省略か置換かFalseにするか、3パターンある
     switch (handling) {
     case SCM_ILLEGAL_CHAR_REJECT:
     case SCM_ILLEGAL_CHAR_OMIT:
@@ -346,12 +387,14 @@ ScmObj Scm_StringIncompleteToComplete(ScmString *x,
     const ScmStringBody *b = SCM_STRING_BODY(x);
     if (!SCM_STRING_BODY_INCOMPLETE_P(b)) {
         /* we do simple copy */
+      // 完全文字列だから、そのまま
         r = Scm_CopyString(x);
     } else {
         const char *s = SCM_STRING_BODY_START(b);
         ScmSmallInt siz = SCM_STRING_BODY_SIZE(b);
         ScmSmallInt len = count_length(s, siz);
         if (len >= 0) {
+          // len >= 0は完全文字列と同等みたい
             r = Scm_MakeString(s, siz, len, 0);
         } else if (handling == SCM_ILLEGAL_CHAR_REJECT) {
             r = SCM_FALSE;
@@ -359,27 +402,37 @@ ScmObj Scm_StringIncompleteToComplete(ScmString *x,
             const char *p = s;
 
             ScmDString ds;
+            // PutCで、一文字ずつセットする
             Scm_DStringInit(&ds);
 
-            while (p < s+siz) {
+            while (p < s+siz) {  // s+siz=最後から一つ手前
                 ScmChar ch;
                 if (p + SCM_CHAR_NFOLLOWS(*p) >= s + siz) {
+                  // サイズを超えてしまったので、不適切な文字と判断(ここで)
                     ch = SCM_CHAR_INVALID;
                 } else {
+                  // ひとまずcharで取得(不適切な文字である可能性あり)
+                  // 文字コード は文字に割り当てられた(数字)
+                  // 現在のpointerからdeコードできる文字(バイト列をdeコード(utf-8とか)したら=>unicode文字列)
+                  // '\xe3\x81\x82'.decode("utf-8") => u"\u3042"(Unicode)
+                  // バイト列とunicode文字列は、別々のものとして区別する必要あるじゃんか!
                     SCM_CHAR_GET(p, ch);
                 }
 
                 if (ch != SCM_CHAR_INVALID) {
+                  // Getcした後に、またPutcでbyte列に戻す(別にO(1)だから問題ない)
                     Scm_DStringPutc(&ds, ch);
-                    p += SCM_CHAR_NBYTES(ch);
+                    p += SCM_CHAR_NBYTES(ch); // #\あは3byteなので3byte進める
                 } else if (handling == SCM_ILLEGAL_CHAR_OMIT) {
+                  // 無視(もしかしたら次のアドレスから始まる文字でエンコードできるかも)
                     p++;
                 } else {        /* SCM_ILLEGAL_CHAR_REPLACE */
+                  // 指定した文字で埋めておく
                     Scm_DStringPutc(&ds, substitute);
                     p++;
                 }
             }
-            r = Scm_DStringGet(&ds, 0);
+            r = Scm_DStringGet(&ds, 0);  // TERMINATED文字列
         }
     }
 
@@ -395,9 +448,13 @@ int Scm_StringEqual(ScmString *x, ScmString *y)
 {
     const ScmStringBody *xb = SCM_STRING_BODY(x);
     const ScmStringBody *yb = SCM_STRING_BODY(y);
+
+    // 一方が完全、他方が不完全な場合は、等しくない
     if ((SCM_STRING_BODY_FLAGS(xb)^SCM_STRING_BODY_FLAGS(yb))&SCM_STRING_INCOMPLETE) {
         return FALSE;
     }
+
+    // sizeとmemoryが同じなら文字列が同じ
     if (SCM_STRING_BODY_SIZE(xb) != SCM_STRING_BODY_SIZE(yb)) {
         return FALSE;
     }
@@ -406,6 +463,7 @@ int Scm_StringEqual(ScmString *x, ScmString *y)
                    SCM_STRING_BODY_SIZE(xb)) == 0? TRUE : FALSE);
 }
 
+// (compare "abc" "abd") -1
 int Scm_StringCmp(ScmString *x, ScmString *y)
 {
     const ScmStringBody *xb = SCM_STRING_BODY(x);
@@ -417,6 +475,10 @@ int Scm_StringCmp(ScmString *x, ScmString *y)
     ScmSmallInt sizx = SCM_STRING_BODY_SIZE(xb);
     ScmSmallInt sizy = SCM_STRING_BODY_SIZE(yb);
     ScmSmallInt siz = (sizx < sizy)? sizx : sizy;
+
+    // メモリで比較できる関数あるみたい
+    // cpe 'P(memcmp("abc", "abd", 3))' => memcmp("abc", "abd", 3) = -1
+    // 辞書順でxが早い場合に-1
     int r = memcmp(SCM_STRING_BODY_START(xb), SCM_STRING_BODY_START(yb), siz);
     if (r == 0) {
         if (sizx == sizy) return 0;
@@ -433,6 +495,7 @@ int Scm_StringCmp(ScmString *x, ScmString *y)
 static int sb_strcasecmp(const char *px, ScmSmallInt sizx,
                          const char *py, ScmSmallInt sizy)
 {
+  // 大文字小文字を無視 (1つ1つチェックしてるね)
     for (; sizx > 0 && sizy > 0; sizx--, sizy--, px++, py++) {
         char cx = tolower((u_char)*px);
         char cy = tolower((u_char)*py);
@@ -444,6 +507,7 @@ static int sb_strcasecmp(const char *px, ScmSmallInt sizx,
     return 0;
 }
 
+// ＡAのマルチバイトを同等に見なした比較 (size->lenになってるね)
 /* multi-byte case insensitive comparison */
 static int mb_strcasecmp(const char *px, ScmSmallInt lenx,
                          const char *py, ScmSmallInt leny)
@@ -481,8 +545,12 @@ int Scm_StringCiCmp(ScmString *x, ScmString *y)
     const char *py = SCM_STRING_BODY_START(yb);
 
     if (sizx == lenx && sizy == leny) {
+      // (string-ci=? "a" "A")
         return sb_strcasecmp(px, sizx, py, sizy);
     } else {
+    // (string-ci=? "ａ" "Ａ") => #t
+    // マルチバイトは
+    // (string-ci=? "ａ" "a") => #f
         return mb_strcasecmp(px, lenx, py, leny);
     }
 }
@@ -509,6 +577,7 @@ static const char *forward_pos(const char *current, ScmSmallInt offset)
  * argument which will be returned when POS is out-of-range.  We can't
  * have the same semantics since the return type is limited.
  */
+// (string-ref "a" 1 #f) #f
 ScmChar Scm_StringRef(ScmString *str, ScmSmallInt pos, int range_error)
 {
     const ScmStringBody *b = SCM_STRING_BODY(str);
@@ -521,9 +590,10 @@ ScmChar Scm_StringRef(ScmString *str, ScmSmallInt pos, int range_error)
     }
     if (pos < 0 || pos >= len) {
         if (range_error) {
+          // (string-ref "a" 1) とか
             Scm_Error("argument out of range: %d", pos);
         } else {
-            return SCM_CHAR_INVALID;
+          return SCM_CHAR_INVALID;  // #fで評価される
         }
     }
     if (SCM_STRING_BODY_SINGLE_BYTE_P(b)) {
@@ -593,19 +663,26 @@ ScmObj Scm_StringAppend2(ScmString *x, ScmString *y)
     ScmSmallInt leny = SCM_STRING_BODY_LENGTH(yb);
     CHECK_SIZE(sizex+sizey);
     int flags = 0;
-    char *p = SCM_NEW_ATOMIC2(char *,sizex + sizey + 1);
 
+    // +1はNULLのための領域を余分に確保
+    // 3byte, 5byteのmoji "abc" "abcde"は
+    // "abcabcd" の3+5+1バイトの領域が必要
+    char *p = SCM_NEW_ATOMIC2(char *,sizex + sizey + 1);
+    // 先頭からcopy
     memcpy(p, xb->start, sizex);
+    // その後をcopy
     memcpy(p+sizex, yb->start, sizey);
     p[sizex + sizey] = '\0';
     flags |= SCM_STRING_TERMINATED;
 
+    // 一方が不完全なら、不完全文字列として扱う
     if (SCM_STRING_BODY_INCOMPLETE_P(xb) || SCM_STRING_BODY_INCOMPLETE_P(yb)) {
         flags |= SCM_STRING_INCOMPLETE; /* yields incomplete string */
     }
     return SCM_OBJ(make_str(lenx+leny, sizex+sizey, p, flags));
 }
 
+// いっぽうがchar* の場合のappend
 ScmObj Scm_StringAppendC(ScmString *x, const char *str,
                          ScmSmallInt sizey, ScmSmallInt leny)
 {
@@ -614,10 +691,12 @@ ScmObj Scm_StringAppendC(ScmString *x, const char *str,
     ScmSmallInt lenx = SCM_STRING_BODY_LENGTH(xb);
     int flags = 0;
 
+    // -の場合は、strから取り出す
     if (sizey < 0) count_size_and_length(str, &sizey, &leny);
     else if (leny < 0) leny = count_length(str, sizey);
     CHECK_SIZE(sizex+sizey);
 
+    // 以下append2とだいたい同じ
     char *p = SCM_NEW_ATOMIC2(char *, sizex + sizey + 1);
     memcpy(p, xb->start, sizex);
     memcpy(p+sizex, str, sizey);
@@ -641,11 +720,13 @@ ScmObj Scm_StringAppend(ScmObj strs)
        by another thread during we're dealing with it.  So in the first
        pass to sum up the lengths of strings, we extract the string bodies
        and save it.  */
+    // 他のスレッドのことを気にする必要があるから、ちょっとtrickey
     int numstrs = Scm_Length(strs);
     if (numstrs < 0) Scm_Error("improper list not allowed: %S", strs);
     if (numstrs > BODY_ARRAY_SIZE) {
         bodies = SCM_NEW_ARRAY(const ScmStringBody*, numstrs);
     } else {
+      // 32を超えていないなら、ローカル変数で事足りるみたい
         bodies = bodies_s;
     }
 
@@ -653,25 +734,38 @@ ScmObj Scm_StringAppend(ScmObj strs)
     ScmObj cp;
     SCM_FOR_EACH(cp, strs) {
         const ScmStringBody *b;
+        // cpがnullの可能性はないの？(for-eachしてるので、'()はこない)
         if (!SCM_STRINGP(SCM_CAR(cp))) {
             Scm_Error("string required, but got %S", SCM_CAR(cp));
         }
+        // 以下cpは文字列
         b = SCM_STRING_BODY(SCM_CAR(cp));
         size += SCM_STRING_BODY_SIZE(b);
         len += SCM_STRING_BODY_LENGTH(b);
         CHECK_SIZE(size);
+        // 一つでも不完全文字列ならば、それになる
         if (SCM_STRING_BODY_INCOMPLETE_P(b)) {
             flags |= SCM_STRING_INCOMPLETE;
         }
+        // まだappendしないで、size/len数えてる、flag決めている
+        // 一旦、各文字列のpointerをbodiesに集めておく(pointerの指す文字列自体は普遍だったと思う)
         bodies[i++] = b;
     }
+    // thread safeである理由:
+    // つまりcpのアドレスが同じであっても
+    // そのbodyを書き換えると、bodyの指すpointerが別の場所になる.
+    // 文字列自体のpointerは常に同じ仕様として実装されているので
+    // bodiesに一旦退避させておけば問題ない
 
-    char *buf = SCM_NEW_ATOMIC2(char *, size+1);
+    // atomicだね (新しい領域にappendした結果を格納)
+    // おそらく、連続したメモリ領域がほしいから
+    // listとかは別に散在してても問題ないけど
+    char *buf = SCM_NEW_ATOMIC2(char *, size+1);  // +1は'\0'
     char *bufp = buf;
     for (i=0; i<numstrs; i++) {
         const ScmStringBody *b = bodies[i];
         memcpy(bufp, SCM_STRING_BODY_START(b), SCM_STRING_BODY_SIZE(b));
-        bufp += SCM_STRING_BODY_SIZE(b);
+        bufp += SCM_STRING_BODY_SIZE(b);  // copy位置を更新
     }
     *bufp = '\0';
     bodies = NULL;              /* to help GC */
@@ -1358,32 +1452,37 @@ static inline void string_putc(ScmChar ch, ScmPort *port, int bytemode)
     case '\0': SCM_PUTZ("\\0", -1, port); break;
     default:
         if (ch < ' ' || ch == 0x7f || (bytemode && ch >= 0x80)) {
+          // 不完全文字列を出力する場合にbytemode==1になる 
             /* TODO: Should we provide 'legacy-compatible writer mode,
                which does not use ';' terminator? */
             snprintf(buf, 6, "\\x%02x;", (unsigned char)ch);
             SCM_PUTZ(buf, -1, port);
         } else {
+          // マルチバイトの出力
             SCM_PUTC(ch, port);
         }
     }
 }
-
+// REPLで"\""するときとか
 static void string_print(ScmObj obj, ScmPort *port, ScmWriteContext *ctx)
 {
     ScmString *str = SCM_STRING(obj);
+    // :TODO: modeがよくわからん?
     if (Scm_WriteContextMode(ctx) == SCM_WRITE_DISPLAY) {
         SCM_PUTS(str, port);
     } else {
         const ScmStringBody *b = SCM_STRING_BODY(str);
-        if (SCM_STRING_BODY_SINGLE_BYTE_P(b)) {
+        if (SCM_STRING_BODY_SINGLE_BYTE_P(b)) { // len == size (マルチバイトでない)
             const char *cp = SCM_STRING_BODY_START(b);
             ScmSmallInt size = SCM_STRING_BODY_SIZE(b);
+            // 出力の開始文字
             if (SCM_STRING_BODY_INCOMPLETE_P(b)) {
-                SCM_PUTZ("#*\"", -1, port);
+              SCM_PUTZ("#*\"", -1, port);  // Cでなく、なぜZ?
             } else {
                 SCM_PUTC('"', port);
             }
             while (size--) {
+              // 1byteずつ出力
                 string_putc(*cp++, port, SCM_STRING_BODY_INCOMPLETE_P(b));
             }
         } else {
@@ -1393,7 +1492,7 @@ static void string_print(ScmObj obj, ScmPort *port, ScmWriteContext *ctx)
             SCM_PUTC('"', port);
             while (len--) {
                 ScmChar ch;
-                SCM_CHAR_GET(cp, ch);
+                SCM_CHAR_GET(cp, ch); // byte列をデコードして出力
                 string_putc(ch, port, FALSE);
                 cp += SCM_CHAR_NBYTES(ch);
             }
@@ -1401,6 +1500,8 @@ static void string_print(ScmObj obj, ScmPort *port, ScmWriteContext *ctx)
         SCM_PUTC('"', port);
     }
 }
+
+// String Pointer は OBSOLETED になるみたいなので無視してよさげ
 
 /*==================================================================
  *
@@ -1622,7 +1723,7 @@ void Scm__DStringRealloc(ScmDString *dstr, int minincr)
 
     /* determine the size of the new chunk.  the increase factor 3 is
        somewhat arbitrary, determined by rudimental benchmarking. */
-    ScmSmallInt newsize = dstr->lastChunkSize * 3;
+    ScmSmallInt newsize = dstr->lastChunkSize * 3;  // 3は適当だって
     if (newsize > DSTRING_MAX_CHUNK_SIZE) {
         newsize = DSTRING_MAX_CHUNK_SIZE;
     }
@@ -1653,8 +1754,10 @@ void Scm__DStringRealloc(ScmDString *dstr, int minincr)
 /* Retrieve accumulated string. */
 static const char *dstring_getz(ScmDString *dstr, int *psiz, int *plen, int noalloc)
 {
+  // size　/ lenはここで計算して、呼び出し元に渡す
     ScmSmallInt size, len;
     char *buf;
+    //anchorがNULLだと1chunkのみらしい
     if (dstr->anchor == NULL) {
         /* we only have one chunk */
         size = dstr->current - dstr->init.data;
@@ -1666,6 +1769,8 @@ static const char *dstring_getz(ScmDString *dstr, int *psiz, int *plen, int noal
             buf = SCM_STRDUP_PARTIAL(dstr->init.data, size);
         }
     } else {
+      // extraなので、おそらくどこかで追加されるのかな
+      // init~tail  の間にあってもよさそうだけど
         ScmDStringChain *chain = dstr->anchor;
         char *bptr;
 
@@ -1677,6 +1782,9 @@ static const char *dstring_getz(ScmDString *dstr, int *psiz, int *plen, int noal
         memcpy(bptr, dstr->init.data, dstr->init.bytes);
         bptr += dstr->init.bytes;
         for (; chain; chain = chain->next) {
+          // chainは、複数のlist構造で、それぞれがバイト列を保持してるみたい
+          // chunkは32byteなので、たかだか1文字
+          // dataがそのバイト列の先頭pointer
             memcpy(bptr, chain->chunk->data, chain->chunk->bytes);
             bptr += chain->chunk->bytes;
         }
@@ -1688,6 +1796,7 @@ static const char *dstring_getz(ScmDString *dstr, int *psiz, int *plen, int noal
     return buf;
 }
 
+// DString-> longの文字列を返す
 ScmObj Scm_DStringGet(ScmDString *dstr, int flags)
 {
     int len, size;
@@ -1710,6 +1819,7 @@ const char *Scm_DStringGetz(ScmDString *dstr)
    the internal buffer of Scm_DString; especially, this never allocates
    if DString only uses initial buffer.  The caller should be aware that
    the returned content may be altered by further DString operation. */
+// Trueなのでコピーした文字列 NULLで終わってないかも
 const char *Scm_DStringPeek(ScmDString *dstr, int *size, int *len)
 {
     return dstring_getz(dstr, size, len, TRUE);
@@ -1752,6 +1862,7 @@ void Scm_DStringPutb(ScmDString *ds, char byte)
     SCM_DSTRING_PUTB(ds, byte);
 }
 
+// ただのラッパー
 void Scm_DStringPutc(ScmDString *ds, ScmChar ch)
 {
     SCM_DSTRING_PUTC(ds, ch);

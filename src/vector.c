@@ -80,6 +80,7 @@ SCM_DEFINE_BUILTIN_CLASS_FLAGS(Scm_VectorClass, vector_print, vector_compare,
 
 static ScmVector *make_vector(ScmSmallInt size)
 {
+    // :ERROR: ここが、tread safeになっていないような気持ちがするが???
     ScmVector *v = SCM_NEW2(ScmVector *,
                             sizeof(ScmVector) + sizeof(ScmObj)*(size-1));
     SCM_SET_CLASS(v, SCM_CLASS_VECTOR);
@@ -87,35 +88,49 @@ static ScmVector *make_vector(ScmSmallInt size)
     return v;
 }
 
+// (make-vector 3 5) => #(5 5 5)
 ScmObj Scm_MakeVector(ScmSmallInt size, ScmObj fill)
 {
     if (size < 0) {
         Scm_Error("vector size must be a positive integer, but got %d", size);
     }
     ScmVector *v = make_vector(size);
+    // fillを指定しない場合<undef>
     if (SCM_UNBOUNDP(fill)) fill = SCM_UNDEFINED;
+    // size分だけメモリを確保して、fillをそれぞれ代入
     for (ScmSmallInt i=0; i<size; i++) v->elements[i] = fill;
     return SCM_OBJ(v);
 }
 
+//  (list->vector '(1 2 3 4) 1 3) => #(2 3)
 ScmObj Scm_ListToVector(ScmObj l, ScmSmallInt start, ScmSmallInt end)
 {
     ScmVector *v;
-
+    // end - startが要素数
     if (end < 0) {
         ScmSmallInt size = Scm_Length(l);
+        // :TODO: listでlen==-1になるようなパターンは？
         if (size < 0) Scm_Error("bad list: %S", l);
+        // end < 0の場合、ここでend = sizeに書きかわる
+        // (list->vector '(1 2 3) 1 -1000) =>
+        // (list->vector '(1 2 3) 1 3) => #(2 3)
         SCM_CHECK_START_END(start, end, size);
         v = make_vector(size - start);
     } else {
         SCM_CHECK_START_END(start, end, end);
         v = make_vector(end - start);
     }
+    // 要素数のメモリをvに確保
+
+    // ScmObj => listに変換(UNBOUDを指定しているので、startがリストの要素より多い場合、range error)
+    // '(1 2 3 4) start=1 => (2 3 4)を返す
     ScmObj e = Scm_ListTail(l, start, SCM_UNBOUND);
     for (ScmSmallInt i=0; i<end-start; i++, e=SCM_CDR(e)) {
+    // (list->vector '(1 2 3) 1 1000) みたいなのでerror発生
         if (!SCM_PAIRP(e)) {
             Scm_Error("list too short: %S", l);
         }
+        // 0から(end-start-1)まで順に格納
         v->elements[i] = SCM_CAR(e);
     }
     return SCM_OBJ(v);
@@ -422,6 +437,7 @@ ScmObj SCM_CPP_CAT3(Scm_Make,tag,Vector)(ScmSmallInt size, T fill)      \
 ScmObj SCM_CPP_CAT3(Scm_Make,tag,VectorFromArray)(ScmSmallInt size,     \
                                                   const T array[])      \
 {                                                                       \
+    // 連続したメモリがほしいのでatomicになってる
     T *z = SCM_NEW_ATOMIC_ARRAY(T, size);                               \
     memcpy(z, array, size*sizeof(T));                                   \
     return Scm_MakeUVector(SCM_CPP_CAT3(SCM_CLASS_,tag,VECTOR),         \

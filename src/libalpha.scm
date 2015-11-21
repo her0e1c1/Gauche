@@ -87,6 +87,7 @@
 ;; make-vector needs to be defined here, for it is called
 ;; in other initalization routines.
 (select-module scheme)
+;;; ここで定義して、cのソースコードを出力してる！
 (define-cproc make-vector (k::<fixnum> :optional fill) Scm_MakeVector)
 
 ;;;

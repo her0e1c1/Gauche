@@ -1,3 +1,4 @@
+;;; intrをマクロで定義して、cのファイルを出力する(コード自体はcのvm上で動作)
 ;;;
 ;;; vminsn.scm - Virtual machine instruction definition
 ;;;
@@ -41,6 +42,7 @@
 ;;;                        (<body> #f)
 ;;;                        <flags> ...)
 ;;;
+;;;   SCM_VM_CONSとかの名前
 ;;;   <name> - instruction name.  In C, an enum SCM_VM_<name> is defined.
 ;;;
 ;;;   <num-params> - # of parameters the instruction takes.
@@ -51,6 +53,7 @@
 ;;;                  for missing parameters.  This is mainly to compile
 ;;;                  Gauche itself with the previous version of Gauche.
 ;;;
+;;;   noneは引数を取らない(num-paramsも基本0かな)
 ;;;   <operand-type> - none : the insn doesn't take an operand.
 ;;;                    obj  : an ScmObj operand.
 ;;;                    addr : an address the next pc points.
@@ -94,6 +97,7 @@
 ;;   either put in VAL0, pushed directly into the stack, or returned.
 ;;   The parameter result-type is defined in geninsn.
 
+;; $returnは、オブジェクトによって、intrを変えるのね
 (define-cise-stmt $result
   [(_ expr) `(begin ,@(case (result-type)
                        [(reg)  `((set! VAL0 ,expr)
@@ -107,9 +111,11 @@
                                  NEXT)]
                        ))])
 
+;; :typeみたい, :b => bool型のオブジェクトとして返せ
 ;; variations of $result with type coercion
 (define-cise-stmt $result:b
   [(_ expr) `($result (SCM_MAKE_BOOL ,expr))])
+; long型として返す
 (define-cise-stmt $result:i
   [(_ expr) (let1 r (gensym "cise__")
               `(let* ([,r :: long ,expr])
@@ -122,7 +128,7 @@
                    (set! ,v (SCM_MAKE_INT ,r))
                    (set! ,v (Scm_MakeInteger ,r)))
                  ($result ,v)))])
-(define-cise-stmt $result:u
+(define-cise-stmt $result:u  ; unsigned long
   [(_ expr) (let ([r (gensym "cise__")]
                   [v (gensym "cise__")])
               `(let* ([,r :: u_long ,expr] [,v])
@@ -130,7 +136,7 @@
                    (set! ,v (SCM_MAKE_INT ,r))
                    (set! ,v (Scm_MakeIntegerU ,r)))
                  ($result ,v)))])
-(define-cise-stmt $result:f
+(define-cise-stmt $result:f  ; double
   [(_ expr) (let1 r (gensym "cise__")
               `(let* ([,r :: double ,expr])
                  ($result (Scm_VMReturnFlonum ,r))))])
@@ -243,7 +249,9 @@
 ;; ($branch* EXPR)
 ;;   Branch.  $branch* leaves the result in VAL0.
 ;;
+;; if文を生成する! FETCH-LOCATION PCは、次のjumpするアドレスが入っているのでしょう
 (define-cise-stmt $branch
+  ;; begin / if / expr以外はそのままcのコードとして出力されてるみたい
   [(_ expr) `(begin (if ,expr (FETCH-LOCATION PC) INCR-PC) CHECK-INTR NEXT)])
 (define-cise-stmt $branch*
   [(_ expr)
@@ -583,6 +591,7 @@
 ;;   Conditional branches.
 ;;   The combined operations leave the boolean value of the test result
 ;;   in VAL0.
+;; Branch if False (BFの略)
 (define-insn BF      0 addr #f ($branch (SCM_FALSEP VAL0)))
 (define-insn BT      0 addr #f ($branch (not (SCM_FALSEP VAL0))))
 (define-insn BNEQ    0 addr #f ($w/argp z ($branch* (not (SCM_EQ VAL0 z)))))
@@ -886,6 +895,7 @@
 ;;  reference of those primitive calls in the user code are replaced
 ;;  as well.
 ;;
+;; おそらくstackからcaに値を入れて、(cons ca VAL0)として返せかな
 (define-insn CONS        0 none #f
   (let* ([ca]) (POP-ARG ca) ($result (Scm_Cons ca VAL0))))
 (define-insn CONS-PUSH   0 none   (CONS PUSH))
@@ -1157,6 +1167,7 @@
 ;;         ($vm-err "uvector-ref index out of range: %d" k))
 ;;       ($result (Scm_VMUVectorRef (SCM_UVECTOR vec) utype k SCM_UNBOUND)))))
 
+; = の演算子
 (define-insn NUMEQ2      0 none #f      ; =
   ($w/argp arg
     (cond

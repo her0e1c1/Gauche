@@ -64,7 +64,9 @@ extern ScmClass *Scm__SequenceCPL[];
  * Sequence-related utilities
  */
 
+// endが負の場合はlenを代入する!(checkといいつつ、書き換えも行う)
 /* Utility to check start/end range in string and vector operation */
+// 0 <= start <= end <= len
 #define SCM_CHECK_START_END(start, end, len)                            \
     do {                                                                \
         if ((start) < 0 || (start) > (len)) {                           \
