@@ -409,9 +409,11 @@ static void vm_unregister(ScmVM *vm)
  */
 
 /* fetching */
+// PCを1つ進めろ
 #define INCR_PC                 (PC++)
 #define FETCH_LOCATION(var)     ((var) = (ScmWord*)*PC)
 #define FETCH_OPERAND(var)      ((var) = SCM_OBJ(*PC))
+// stackに*PCのpointerを入れておけ
 #define FETCH_OPERAND_PUSH      (*SP++ = SCM_OBJ(*PC))
 
 #ifndef COUNT_INSN_FREQUENCY
@@ -461,10 +463,16 @@ static void vm_unregister(ScmVM *vm)
    that more local variables tended to make them spill from machine
    registers and didn't improve performance.  Having only vm, a pointer
    to the current VM, on register is enough. */
+
+// vmの構造体にそれぞれアクセスするのね
+// PCは、具体的には単なるリスト (ScmObj pc)
 #define PC    (vm->pc)
 #define SP    (vm->sp)
+// 戻り値なはず
 #define VAL0  (vm->val0)
+// 親の環境だと思う
 #define ENV   (vm->env)
+// 継続かな
 #define CONT  (vm->cont)
 #define ARGP  (vm->argp)
 #define BASE  (vm->base)
@@ -730,11 +738,16 @@ static void vm_unregister(ScmVM *vm)
 #define CASE(insn)  SCM_CPP_CAT(LABEL_, insn) :
 #define DEFAULT     LABEL_DEFAULT :
 #define DISPATCH    /*empty*/
+
+// codeに次の命令をセットして、そのcode値の次のlabelへgo to
 #define NEXT                                            \
     do {                                                \
         FETCH_INSN(code);                               \
+        // CODE自体は1byteかな. つぎのcode命令にとべだと思う
         goto *dispatch_table[SCM_VM_INSN_CODE(code)];   \
     } while (0)
+
+// PUSH命令があれば、それを実行してからつぎに進む
 #define NEXT_PUSHCHECK                                  \
     do {                                                \
         FETCH_INSN(code);                               \
@@ -745,6 +758,7 @@ static void vm_unregister(ScmVM *vm)
         goto *dispatch_table[SCM_VM_INSN_CODE(code)];   \
     } while (0)
 #else /* !__GNUC__ */
+// ここらへんで、命令定義してるのね
 #define SWITCH(val)    switch (val)
 #define CASE(insn)     case insn :
 #define DISPATCH       dispatch:
@@ -855,6 +869,8 @@ static void run_loop()
 #ifdef __GNUC__
     static void *dispatch_table[256] = {
 #define DEFINSN(insn, name, nargs, type, flags)   && SCM_CPP_CAT(LABEL_, insn),
+      // static struct insn_infoの構造体を定義 
+      //DEFINSN(SCM_VM_CONSTF, "CONSTF", 0, NONE, 0)
 #include "vminsn.c"
 #undef DEFINSN
     };
@@ -1252,6 +1268,9 @@ void Scm_VMFlushFPStack(ScmVM *vm)
 /* Static VM instruction arrays.
    Scm_VMApplyN modifies VM's pc to point it. */
 
+// shortcutっぽい
+// PCに対して代入しているので、それぞれの命令が順に呼ばれるのかな
+// PC = apply_call[1] とかやってるんで、PCの命令個数みたいなのあんの？
 static ScmWord apply_calls[][2] = {
     { SCM_VM_INSN1(SCM_VM_TAIL_CALL, 0),
       SCM_VM_INSN(SCM_VM_RET) },
@@ -1265,6 +1284,7 @@ static ScmWord apply_calls[][2] = {
       SCM_VM_INSN(SCM_VM_RET) },
 };
 
+// (appli func list)を処理する合にPCにセット
 static ScmWord apply_callN[2] = {
     SCM_VM_INSN1(SCM_VM_TAIL_APPLY, 2),
     SCM_VM_INSN(SCM_VM_RET)
@@ -1302,7 +1322,10 @@ ScmObj Scm_VMApply(ScmObj proc, ScmObj args)
 #else
     reqstack = ENV_SIZE(1) + 1;
     CHECK_STACK(reqstack);
+
     PUSH_ARG(proc);
+    // stackに手続きをつっこんで、
+    // つぎのたいみんぐで、実行かな
     PC = apply_callN;
     return Scm_CopyList(args);
 #endif

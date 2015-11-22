@@ -476,6 +476,7 @@ ScmObj Scm_Member(ScmObj obj, ScmObj list, int cmpmode)
 /* delete. */
 //  (delete 2 '(1 2 3) eq?) => (1 3)
 // (delete 2 '(1 2 3 2 3) eq?)  => (1 3 3)
+// (こっちは破壊的)
 ScmObj Scm_Delete(ScmObj obj, ScmObj list, int cmpmode)
 {
     if (SCM_NULLP(list)) return SCM_NIL;
@@ -492,12 +493,14 @@ ScmObj Scm_Delete(ScmObj obj, ScmObj list, int cmpmode)
     // 等しいものがみつからなかったのでprevが初期状態のままだった
     if (list == prev) return list;
 
+    // 先頭要素だけ削除したので、listは破壊せずにすんだ
     if (SCM_NULLP(start)) return prev;
+
     if (SCM_PAIRP(prev)) SCM_SET_CDR(last, prev);
     return start;
 }
 
-// こっちは一般的なlistのdeleteだと思うが
+// こっちは一般的なlistのdeleteだと思うが(こっちは破壊的出ない)
 ScmObj Scm_DeleteX(ScmObj obj, ScmObj list, int cmpmode)
 {
     ScmObj cp, prev = SCM_NIL;
@@ -576,18 +579,29 @@ ScmObj Scm_AssocDelete(ScmObj elt, ScmObj alist, int cmpmode)
         p = SCM_CAR(cp);
         if (SCM_PAIRP(p)) {
             if (Scm_EqualM(elt, SCM_CAR(p), cmpmode)) {
+              // listの再構築(破壊的ではない)
+              // pは削除対象
+              // その手前までは、削除対象でない
+              // prev ~ (cpの一つ前)をリストに追加する
+              // このforを実行しない場合が、prevを返す
                 for (; prev != cp; prev = SCM_CDR(prev))
                     SCM_APPEND1(start, last, SCM_CAR(prev));
+                // prevは、cpの次から
                 prev = SCM_CDR(cp);
             }
         }
     }
-    if (alist == prev) return alist;
+    if (alist == prev) return alist;  // 一つも削除要素eltがみつからなかった
+    // 先頭の要素のみが削除されたので、リストの再構築はせずに、pointerだけ進めた
     if (SCM_NULLP(start)) return prev;
+    // APPEND1してない 残りのprevを追加しておく
     if (SCM_PAIRP(prev)) SCM_SET_CDR(last, prev);
     return start;
 }
 
+// 同じもの全て削除
+// (alist-delete 1 '(1 2 (1 . a) 3))  => (1 2 3)
+// (alist-delete 1 '(1 2 (1 . a) 3 (2 . b) (1 . c)))  (1 2 3 (2 . b))
 ScmObj Scm_AssocDeleteX(ScmObj elt, ScmObj alist, int cmpmode)
 {
     if (!SCM_LISTP(alist)) {
@@ -596,12 +610,20 @@ ScmObj Scm_AssocDeleteX(ScmObj elt, ScmObj alist, int cmpmode)
     ScmObj cp, prev = SCM_NIL;
     SCM_FOR_EACH(cp, alist) {
         ScmObj e = SCM_CAR(cp);
+        // pairでないなら削除対象でない
         if (SCM_PAIRP(e)) {
             if (Scm_EqualM(elt, SCM_CAR(e), cmpmode)) {
+              // carが一致したので削除する
                 if (SCM_NULLP(prev)) {
+                  // 先頭なのでpointerを１つ進めるだけ
                     alist = SCM_CDR(cp);
                     continue;
                 } else {
+                  // cp = prev->next
+                  // prev->next = cp->next
+                  // つまり
+                  // prev->next = prev->next->next
+                  // こっちは破壊的操作!
                     SCM_SET_CDR(prev, SCM_CDR(cp));
                 }
             }
@@ -617,6 +639,8 @@ ScmObj Scm_DeleteDuplicates(ScmObj list, int cmpmode)
 {
     ScmObj result = SCM_NIL, tail = SCM_NIL, lp;
     SCM_FOR_EACH(lp, list) {
+      // Scm_MemberもO(n)なので、N^2かかる
+      // 新しいlistのresultに要素がなければ、追加していく
         if (SCM_FALSEP(Scm_Member(SCM_CAR(lp), result, cmpmode))) {
             SCM_APPEND1(result, tail, SCM_CAR(lp));
         }
@@ -628,10 +652,13 @@ ScmObj Scm_DeleteDuplicates(ScmObj list, int cmpmode)
 ScmObj Scm_DeleteDuplicatesX(ScmObj list, int cmpmode)
 {
     ScmObj lp;
-
+    // (delete-duplicates '(1 2 3 1 1 2)) =>  (1 2 3)
     SCM_FOR_EACH(lp, list) {
         ScmObj obj = SCM_CAR(lp);
+        // (cdr lp) を破壊的に変更(こっちも、deletexがO(n)なので、N^2)
         ScmObj tail = Scm_DeleteX(obj, SCM_CDR(lp), cmpmode);
+
+        // いずれにしても、(lp tail)の関係になるように調整
         if (SCM_CDR(lp) != tail) SCM_SET_CDR(lp, tail);
     }
     return list;
@@ -725,8 +752,12 @@ ScmObj Scm_MonotonicMerge1(ScmObj sequences)
  * Pair attributes
  */
 
+//  (pair? (cons 1 2))  => #t
+// (extended-cons a b) ; gauche.internalからロード
+// (piar-attributes a)  ; こっちはextendでなくてもよい
 ScmObj Scm_PairAttr(ScmPair *pair)
 {
+  // attributesを属性にもつ
     if (SCM_EXTENDED_PAIR_P(pair)) {
         return SCM_EXTENDED_PAIR(pair)->attributes;
     } else {
@@ -739,7 +770,8 @@ ScmObj Scm_ExtendedCons(ScmObj car, ScmObj cdr)
     ScmExtendedPair *xp = SCM_NEW(ScmExtendedPair);
     xp->car = car;
     xp->cdr = cdr;
-    xp->attributes = SCM_NIL;
+    // それぞれのconsにattrsがあるみたい
+    xp->attributes = SCM_NIL;  // 要するにリストを入れておける(alistかな基本)
     return SCM_OBJ(xp);
 }
 
@@ -749,6 +781,7 @@ ScmObj Scm_PairAttrGet(ScmPair *pair, ScmObj key, ScmObj fallback)
         goto fallback;
     }
 
+    // alistを捜索してるだけね.
     ScmObj p = Scm_Assq(key, SCM_EXTENDED_PAIR(pair)->attributes);
     if (SCM_PAIRP(p)) return SCM_CDR(p);
   fallback:
@@ -761,14 +794,17 @@ ScmObj Scm_PairAttrGet(ScmPair *pair, ScmObj key, ScmObj fallback)
 ScmObj Scm_PairAttrSet(ScmPair *pair, ScmObj key, ScmObj value)
 {
     if (!SCM_EXTENDED_PAIR_P(pair)) {
+      // (pair-attributes-set! a 'key value)  a が不適切な場合
         Scm_Error("Cannot set pair attribute (%S) to non-extended pair: %S",
                   key, SCM_OBJ(pair));
     }
 
     ScmObj p = Scm_Assq(key, SCM_EXTENDED_PAIR(pair)->attributes);
-    if (SCM_PAIRP(p)) SCM_SET_CDR(p, value);
+    if (SCM_PAIRP(p)) SCM_SET_CDR(p, value);  //すでに存在していれば更新
     else SCM_EXTENDED_PAIR(pair)->attributes
+           // (acons k v alist) して新しいデータを格納
         = Scm_Acons(key, value, SCM_EXTENDED_PAIR(pair)->attributes);
+    // 未定義を返しておく
     return SCM_UNDEFINED;
 }
 

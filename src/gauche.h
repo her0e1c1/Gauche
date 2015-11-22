@@ -1080,6 +1080,7 @@ SCM_CLASS_DECL(Scm_NullClass);
 #define SCM_FOR_EACH(p, list) \
     for((p) = (list); SCM_PAIRP(p); (p) = SCM_CDR(p))
 
+// APPEND1は新しくリストを再構築してる!
 #define SCM_APPEND1(start, last, obj)                           \
     do {                                                        \
         if (SCM_NULLP(start)) {                                 \

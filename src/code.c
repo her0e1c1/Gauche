@@ -896,6 +896,7 @@ static struct insn_info {
 #undef DEFINSN
 };
 
+// codeは、SCM_VM_NOP (code==0)みたいに割り振ってるのかな
 #define CHECK_CODE(code)                                        \
     do {                                                        \
         if (code >= SCM_VM_NUM_INSNS) {                         \
