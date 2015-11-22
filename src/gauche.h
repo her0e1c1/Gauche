@@ -173,6 +173,10 @@ SCM_DECL_BEGIN
 /*
  * A word large enough to hold a pointer
  */
+// pointerを整数として扱う型
+// cpe 'P(sizeof(intptr_t))'  sizeof(intptr_t) = 8
+// sizeof(int) => 4
+// cpe 'P(sizeof(void*))'  sizeof(void*) = 8
 typedef intptr_t ScmWord;
 
 /*
@@ -183,12 +187,13 @@ typedef unsigned char ScmByte;
 /*
  * A character.
  */
-typedef long ScmChar;
+typedef long ScmChar;  // 64bitの8byteみたい
 
 /*
  * An opaque pointer.  All Scheme objects are represented by
  * this type.
  */
+// ScmObjは、headerのみね! SCM_OBJ(obj)->tagアクセス可能
 typedef struct ScmHeaderRec *ScmObj;
 
 /*
@@ -209,6 +214,7 @@ typedef struct ScmClassRec ScmClass;
  *      -------- -------- -------- ------01
  *      30 or 62-bit signed integer
  *
+ * 110 / 010が小数点 (110はheapを使う構造)
  * [Flonum]
  *      -------- -------- -------- -----M10
  *      Points to C double.  M=0 if the double is in the VM
@@ -247,7 +253,9 @@ typedef struct ScmClassRec ScmClass;
 #define SCM_TAG1(obj)    (SCM_WORD(obj) & 0x01)
 #define SCM_TAG2(obj)    (SCM_WORD(obj) & 0x03)
 #define SCM_TAG3(obj)    (SCM_WORD(obj) & 0x07)
-#define SCM_TAG8(obj)    (SCM_WORD(obj) & 0xff)
+// SCM_TRUEは、... 0000 0001 0000 1011
+// WORDなので8byteのメモリを使う
+#define SCM_TAG8(obj)    (SCM_WORD(obj) & 0xff)  // tagを8bit使う宣言
 
 /* Check if the ScmObj is a 'pointer'---either to a pair,
    a heap object, or a ScmFlonum. */
@@ -255,6 +263,7 @@ typedef struct ScmClassRec ScmClass;
 
 /* Check if the ScmObj is a pointer to either a pair or a heap
    (That is, we can safely take SCM_OBJ(obj)->tag) */
+// 00なので[pointer]だ
 #define SCM_HPTRP(obj)   (SCM_TAG2(obj) == 0)
 
 /* This macro further takes the lower three bits of the word pointed
@@ -265,10 +274,12 @@ typedef struct ScmClassRec ScmClass;
  * IMMEDIATE OBJECTS
  */
 
-#define SCM_IMMEDIATEP(obj) (SCM_TAG8(obj) == 0x0b)
+#define SCM_IMMEDIATEP(obj) (SCM_TAG8(obj) == 0x0b)  // 0000 1011
 #define SCM_ITAG(obj)       (SCM_WORD(obj)>>8)
 
 #define SCM__MAKE_ITAG(num)  (((num)<<8) + 0x0b)
+// ソースコード上では、 1 0000 1011 のように表現されるので、型を決める必要ない?
+// ただし, 8bitではないことは、明らか! (8+3bitあれば足りる0~7)
 #define SCM_FALSE           SCM_OBJ(SCM__MAKE_ITAG(0)) /* #f */
 #define SCM_TRUE            SCM_OBJ(SCM__MAKE_ITAG(1)) /* #t  */
 #define SCM_NIL             SCM_OBJ(SCM__MAKE_ITAG(2)) /* '() */
@@ -326,7 +337,7 @@ typedef struct ScmFlonumRec {
 } ScmFlonum SCM_ALIGN8;
 
 #define SCM_FLONUM(obj)            ((ScmFlonum*)(SCM_WORD(obj)&~0x07))
-#define SCM_FLONUMP(obj)           (SCM_TAG2(obj) == 2)
+#define SCM_FLONUMP(obj)           (SCM_TAG2(obj) == 2)  // 110 or 010
 #define SCM_FLONUM_VALUE(obj)      (SCM_FLONUM(obj)->val)
 
 /*
@@ -339,7 +350,10 @@ typedef struct ScmFlonumRec {
  */
 
 #define SCM_CHAR(obj)           ((ScmChar)(obj))
-#define SCM_CHARP(obj)          ((SCM_WORD(obj)&0xff) == 3)
+#define SCM_CHARP(obj)          ((SCM_WORD(obj)&0xff) == 3)  // headerは1byte. 11の場合にCHARと断定
+// CHARは、4byteデータで、そのうち下8bitは、tagに使う (64bitでは8byteだった)
+// 残りの上位24bitがデータ。ただし20bitでUSCを全て表現できるみたい
+// なので、chを8bitずらして3足せば、char objになる
 #define SCM_CHAR_VALUE(obj)     SCM_CHAR(((unsigned long)SCM_WORD(obj)) >> 8)
 #define SCM_MAKE_CHAR(ch)       SCM_OBJ((((unsigned long)(ch))<<8) + 3)
 
@@ -408,6 +422,7 @@ SCM_EXTERN void Scm__InstallCharconvHooks(ScmChar (*u2c)(int),
 #define SCM_CLASS2TAG(klass)  ((ScmByte*)(klass) + 7)
 
 /* A common header for heap-allocated objects */
+// headerは、1byte のunsigned char
 typedef struct ScmHeaderRec {
     ScmByte *tag;                /* private.  should be accessed
                                     only via SCM_CLASS_OF and SCM_SET_CLASS
@@ -1270,6 +1285,7 @@ typedef ScmObj (*ScmTransformerProc)(ScmObj self, ScmObj form, ScmObj env,
 /* Base structure */
 struct ScmProcedureRec {
     SCM_INSTANCE_HEADER;
+  // 引数の数
     unsigned int required : 16;    /* # of required args */
     unsigned int optional : 8;     /* >=1 if it takes opt args. see below.*/
     unsigned int type     : 3;     /* ScmProcedureType */

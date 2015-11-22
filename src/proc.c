@@ -43,6 +43,10 @@
 
 static void proc_print(ScmObj obj, ScmPort *port, ScmWriteContext *);
 
+// 手続きの構造体を作成(initで初期化)
+// あとは、この構造体のコピーを
+// SCM_SET_CLASS(s, SCM_CLASS_PROCEDURE) で作成
+
 SCM_DEFINE_BUILTIN_CLASS_SIMPLE(Scm_ProcedureClass, proc_print);
 
 static void proc_print(ScmObj obj, ScmPort *port, ScmWriteContext *ctx)
@@ -62,7 +66,7 @@ static void proc_print(ScmObj obj, ScmPort *port, ScmWriteContext *ctx)
 /*=================================================================
  * Closure
  */
-
+// (^ () ()) #<closure #f>
 ScmObj Scm_MakeClosure(ScmObj code, ScmEnvFrame *env)
 {
     ScmClosure *c = SCM_NEW(ScmClosure);
@@ -86,6 +90,7 @@ ScmObj Scm_MakeClosure(ScmObj code, ScmEnvFrame *env)
  * Subr
  */
 
+// + => #<subr +>
 ScmObj Scm_MakeSubr(ScmSubrProc *func,
                     void *data,
                     int required, int optional,
@@ -101,7 +106,7 @@ ScmObj Scm_MakeSubr(ScmSubrProc *func,
 
 /*
  * A dummy function which does nothing.   Convenient to pass to other
- * fhunctions which requires a thunk.
+ * fhunctions which requires a thunk. (:ERROR:typo)
  */
 static ScmObj theNullProc = SCM_NIL;
 
@@ -278,6 +283,7 @@ ScmObj Scm_Map(ScmObj proc, ScmObj arg1, ScmObj args)
  * Generic setter
  */
 
+// 手続きには、setterをセットできるみたい
 ScmObj Scm_SetterSet(ScmProcedure *proc, ScmProcedure *setter, int lock)
 {
     if (proc->locked) {
@@ -299,6 +305,8 @@ static SCM_DEFINE_STRING_CONST(object_setter__NAME, "object-setter", 13, 13);
 
 ScmObj Scm_Setter(ScmObj proc)
 {
+    // tになる条件
+    // (procedure? (^ ())) #t
     if (SCM_PROCEDUREP(proc)) {
         /* NB: This used to signal an error if no setter procedure is associated
            to proc; now it returns #f in such case */

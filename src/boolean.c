@@ -36,6 +36,7 @@
 
 int Scm_EqP(ScmObj x, ScmObj y)
 {
+  // pointer比較
     return SCM_EQ(x, y);
 }
 
@@ -44,13 +45,19 @@ int Scm_EqvP(ScmObj x, ScmObj y)
     /* For our implementation, only numbers need different treatment
        than SCM_EQ.  We first check flonums, or we'd have to FLONUM_ENSURE_MEM
        before we pass them to Scm_NumEq.
+
+       eqv?は数値以外の扱いはeq?と同じじゃん!
     */
     if (SCM_NUMBERP(x)) {
+      // 一方が数値であれば、他方も数値である必要がある.
         if (SCM_NUMBERP(y)) {
             /* Since flonums are the only "inexact real" type in Gauche,
                we can safely reject the cases where either one is flonum and
                another is not. */
             if (SCM_FLONUMP(x)) {
+              // 一方が小数点の場合は他方もそうである必要あり!
+              // (eqv? 1 1.0)   => #f
+              // (eqv? 1.00 1.0)   => #t
                 if (SCM_FLONUMP(y)) {
                     return (SCM_FLONUM_VALUE(x) == SCM_FLONUM_VALUE(y));
                 } else {
@@ -94,6 +101,7 @@ int Scm_EqualP(ScmObj x, ScmObj y)
     do {                                        \
         if (SCM_PAIRP(a)) {                     \
             if (SCM_PAIRP(b)) goto fallback;    \
+            // 互いにlistのときはfallbackするみたい(:TODO: fallbackしてvm比較)
             return FALSE;                       \
         }                                       \
         if (SCM_VECTORP(a)) {                   \
@@ -103,34 +111,44 @@ int Scm_EqualP(ScmObj x, ScmObj y)
         if (!Scm_EqualP(a, b)) return FALSE;    \
     } while (0)                                 \
 
+  // アドレスが等しい (haderのこと!)
     if (SCM_EQ(x, y)) return TRUE;
 
     if (SCM_NUMBERP(x)) {
         if (!SCM_NUMBERP(y)) return FALSE;
+        // 数値として等しい
         return Scm_EqvP(x, y);
     }
     if (SCM_PAIRP(x)) {
+      // list同士の比較(要素)
         if (!SCM_PAIRP(y)) return FALSE;
         /* We loop on "spine" of lists, so that the typical long flat list
            can be compared quickly.  If we find nested lists/vectors, we
            jump to Scheme routine.  We adopt hare and tortoise to detect
            loop in the CDR side. */
+        // うさぎ、かめ
         ScmObj xslow = x; ScmObj yslow = y;
         int xcirc = FALSE; int ycirc = FALSE;
         for (;;) {
             ScmObj carx = SCM_CAR(x);
             ScmObj cary = SCM_CAR(y);
+            // carの要素を比較(同じでないなら、即#f)
             CHECK_AGGREGATE(carx, cary);
 
             x = SCM_CDR(x); y = SCM_CDR(y);
+            // EqualPを再帰的に読んでるね(どっちかがPairでないが条件だけど
+            // 一方がpairでない時点で#fとなるが、再帰で同じ形をとってるのでしょう
             if (!SCM_PAIRP(x) || !SCM_PAIRP(y)) return Scm_EqualP(x, y);
+            // 2つすすめる
             carx = SCM_CAR(x); cary = SCM_CAR(y);
 
             CHECK_AGGREGATE(carx, cary);
 
             if (xslow == x) {
-                if (ycirc) return TRUE;
-                xcirc = TRUE;
+              // 順番が違う循環リストは、等しくないはず
+              // (1 2 3 1) と (2 3 1 2)
+              if (ycirc) return TRUE;  // 互いに循環リストであったし、要素も同じ
+                xcirc = TRUE;  // 循環リストだった
             }
             if (yslow == y) {
                 if (xcirc) return TRUE;
@@ -159,6 +177,9 @@ int Scm_EqualP(ScmObj x, ScmObj y)
         }
         return TRUE;
     }
+    // 文字列同士の比較
+    // (eq? "abc" "abc") => #f
+    //  (equal? "abc" "abc") => #t
     if (SCM_STRINGP(x)) {
         if (!SCM_STRINGP(y)) return FALSE;
         return Scm_StringEqual(SCM_STRING(x), SCM_STRING(y));
@@ -185,6 +206,8 @@ int Scm_EqualP(ScmObj x, ScmObj y)
     /* End of EXPERIMENTAL code */
 
     if (!SCM_HPTRP(x)) return (x == y);
+
+    // classの比較
     ScmClass *cx = Scm_ClassOf(x);
     ScmClass *cy = Scm_ClassOf(y);
     if (cx == cy && cx->compare) return (cx->compare(x, y, TRUE) == 0);

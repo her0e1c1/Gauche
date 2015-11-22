@@ -1,3 +1,4 @@
+// CPUを模したソフトウェアが機械語を解釈して実行
 /*
  * vm.c - virtual machine
  *

@@ -125,8 +125,11 @@ typedef struct ScmPortVTableRec {
 
 struct ScmPortRec {
     SCM_INSTANCE_HEADER;
+  // dirとなっているがdirectoryではない
+  // :2で2bitを表すはず (00,01,10,11)
     u_int direction : 2;        /* SCM_PORT_INPUT or SCM_PORT_OUTPUT.
                                    There may be I/O port in future. */
+  // (port-type) FILE, in / out string?, proc
     u_int type      : 2;        /* SCM_PORT_{FILE|ISTR|OSTR|PROC} */
     u_int scrcnt    : 3;        /* # of bytes in the scratch buffer */
 
@@ -141,6 +144,7 @@ struct ScmPortRec {
 
     ScmChar ungotten;           /* ungotten character.
                                    SCM_CHAR_INVALID if empty. */
+  // (port-name)でアクセス可能
     ScmObj name;                /* port's name.  Can be any Scheme object. */
 
     ScmInternalFastlock lock;   /* for port mutex */
@@ -402,6 +406,7 @@ SCM_EXTERN ScmObj Scm_SetStdin(ScmPort *port);
 SCM_EXTERN ScmObj Scm_SetStdout(ScmPort *port);
 SCM_EXTERN ScmObj Scm_SetStderr(ScmPort *port);
 
+// VMから値を参照するみたい
 #define SCM_CURIN    SCM_VM_CURRENT_INPUT_PORT(Scm_VM())
 #define SCM_CUROUT   SCM_VM_CURRENT_OUTPUT_PORT(Scm_VM())
 #define SCM_CURERR   SCM_VM_CURRENT_ERROR_PORT(Scm_VM())

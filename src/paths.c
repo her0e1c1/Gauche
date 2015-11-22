@@ -49,6 +49,7 @@
 
 /* The configure-generated path macros might have '@' at the beginning,
    indicating the runtime directory. */
+// 単純にstrcpyするだけの関数 (error関数は呼び出し元から決める)
 void maybe_prepend_install_dir(const char *orig, char *buf, int buflen,
                                void (*errfn)(const char *, ...))
 {
@@ -59,6 +60,7 @@ void maybe_prepend_install_dir(const char *orig, char *buf, int buflen,
         }
         strcat(buf, orig+1);
     } else {
+      // 普段はこっち
         if ((int)strlen(orig) >= buflen-1) {
             errfn("Pathname too long: %s", orig);
         }
@@ -73,12 +75,16 @@ const char *Scm_HostArchitecture(void)
     return gauche_arch;
 }
 
+// コンパイル前に決定する、設定を読み出す
+// (gauche-library-directory)  "/usr/local/share/gauche-0.9/0.9.4/lib"
+// buffにコピーするみたい
 void Scm_GetLibraryDirectory(char *buf, int buflen,
                              void (*errfn)(const char *, ...))
 {
     maybe_prepend_install_dir(gauche_lib_dir, buf, buflen, errfn);
 }
 
+// (gauche-architecture-directory) "/usr/local/lib/gauche-0.9/0.9.4/amd64-portbld-freebsd10.1"
 void Scm_GetArchitectureDirectory(char *buf, int buflen,
                                   void (*errfn)(const char *, ...))
 {

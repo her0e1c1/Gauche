@@ -60,6 +60,7 @@
  *   no other routine should touch these buffering field.
  */
 
+// SAFE_CALLは、SAFE_PORT_OPに応じて、関数の呼び出し方を変えている
 #ifdef SAFE_PORT_OP
 #define VMDECL        ScmVM *vm = Scm_VM()
 #define LOCK(p)       PORT_LOCK(p, vm)
@@ -658,12 +659,15 @@ int Scm_GetcUnsafe(ScmPort *p)
         return c;
     }
     case SCM_PORT_ISTR: {
+      // current >= endで文字列よみおわった(EOF返す)
         if (p->src.istr.current >= p->src.istr.end) {
             UNLOCK(p);
             return EOF;
         }
-        int c = 0;
+        int c = 0; // :ERROR: ScmCharは、longなのに、int型だよ？(5byte以上の文字は使われてないのかな?)
         int first = (unsigned char)*p->src.istr.current++;
+        // utf-8の場合6bypteの文字列もありうる
+        // つまり、nb == 6 となる
         int nb = SCM_CHAR_NFOLLOWS(first);
         p->bytes++;
         if (nb > 0) {
@@ -673,14 +677,18 @@ int Scm_GetcUnsafe(ScmPort *p)
                 Scm_PortError(p, SCM_PORT_ERROR_INPUT,
                               "encountered EOF in middle of a multibyte character from port %S", p);
             }
+            // 一文字よむ(current一つ戻して、nb進める)
             SCM_CHAR_GET(p->src.istr.current-1, c);
             p->src.istr.current += nb;
             p->bytes += nb;
         } else {
+          // 1byte文字であった.そのため、それをそのまま返す(intで)
+          // portのbyte, currentは、すでに進めているのでそのまま
+          // ls|s '(read-char (current-input-port))
             c = first;
             if (c == '\n') p->line++;
         }
-        UNLOCK(p);
+        UNLOCK(p);  // 一文字読み終わったのでlock解除
         return c;
     }
     case SCM_PORT_PROC: {

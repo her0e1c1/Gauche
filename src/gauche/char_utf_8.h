@@ -51,6 +51,7 @@ SCM_EXTERN void Scm_CharUtf8Putc(unsigned char *, ScmChar);
  * two-byte character, it returns 1.   It may return -1 if
  * the given byte can't be a valid first byte of multibyte characters.
  */
+// 1byte目から、この文字は何文字のbyteであるかわかるように設計されてる
 #define SCM_CHAR_NFOLLOWS(ch) ((int)Scm_CharSizeTable[(unsigned char)(ch)])
 
 /* Given wide character CH, returns # of bytes used when CH is
@@ -150,7 +151,10 @@ static const char *supportedCharacterEncodings[] = {
     NULL
 };
 
+// 11110xxxであれば 240 ~ 247
+// 11110000 ~ 11110111
 char Scm_CharSizeTable[256] = {
+  // 1列16文字
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 0x */
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 1x */
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 2x */
@@ -166,9 +170,25 @@ char Scm_CharSizeTable[256] = {
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* cx */
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* dx */
     2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, /* ex */
+    // 16 * 15 = 240(一番左側が) 1111 0000に当たる
+    // つまり、3byte文字列
     3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 0, 0  /* fx */
 };
+/*
+  0000 ~ 10FFFF までの文字を4byteで表す
+  U+0000～U+007F0xxxxxxx
+  U+0080～U+07FF110xxxxx 10xxxxxx
+  U+0800～U+FFFF1110xxxx 10xxxxxx 10xxxxxx
+  U+10000～U+10FFFF11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
 
+  1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxx
+  
+  SchChar自体はlongの8byteみたい
+  ISO/IEC 10646 の文字範囲では、最大6バイトなので
+  SCM_CHAR_MAX_BYTESにも6が定義されてる
+  unicode 1文字を表現するのに8byte使う!
+
+*/
 ScmChar Scm_CharUtf8Getc(const unsigned char *cp)
 {
   ScmChar ch;  // long => 64bitだと思われる

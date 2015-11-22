@@ -680,8 +680,11 @@ int Scm_Mkstemp(char *templat)
 {
     int fd = -1;
 #if defined(HAVE_MKSTEMP)
+    // ある場合は、mkstempをそのまま呼び出す
     SCM_SYSCALL(fd, mkstemp(templat));
     if (fd < 0) Scm_SysError("mkstemp failed");
+    // fdは-1でないとは、どこかに書き込んだ証拠?
+    // freebsdでは 600 modeで作るみたい
     return fd;
 #else   /*!defined(HAVE_MKSTEMP)*/
     /* Emulate mkstemp. */
@@ -691,7 +694,7 @@ int Scm_Mkstemp(char *templat)
     }
 #define MKSTEMP_MAX_TRIALS 65535   /* avoid infinite loop */
     {
-        u_long seed = (u_long)time(NULL);
+      u_long seed = (u_long)time(NULL);  // 現在時刻で乱数生成
         int numtry, flags;
         char suffix[7];
 #if defined(GAUCHE_WINDOWS)
@@ -701,13 +704,14 @@ int Scm_Mkstemp(char *templat)
 #endif /* !GAUCHE_WINDOWS */
         for (numtry=0; numtry<MKSTEMP_MAX_TRIALS; numtry++) {
             snprintf(suffix, 7, "%06lx", (seed>>8)&0xffffff);
+            // 7文字作成をtmplatに上書きすんの?
             memcpy(templat+siz-6, suffix, 7);
-            SCM_SYSCALL(fd, open(templat, flags, 0600));
+            SCM_SYSCALL(fd, open(templat, flags, 0600)); // file openして終わり
             if (fd >= 0) break;
             seed *= 2654435761UL;
         }
         if (numtry == MKSTEMP_MAX_TRIALS) {
-            Scm_Error("mkstemp failed");
+          Scm_Error("mkstemp failed");  // 1度もファイルが作れなかったらerror
         }
     }
     return fd;

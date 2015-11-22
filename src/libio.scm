@@ -66,6 +66,7 @@
 (define-cproc current-input-port (:optional newport)
   (cond [(SCM_IPORTP newport)
          (return (Scm_SetCurrentInputPort (SCM_PORT newport)))]
+        ; IPORTでないものがbindされたので型が不適切
         [(not (SCM_UNBOUNDP newport))
          (Scm_TypeError "current-input-port" "input port" newport)
          (return SCM_UNDEFINED)]
@@ -469,7 +470,7 @@
 (define-cproc read-char (:optional (port::<input-port> (current-input-port)))
   (inliner READ-CHAR)
   (let* ([ch::int])
-    (SCM_GETC ch port)
+    (SCM_GETC ch port) ; おそらく、中で、Scm_GetUnsafeが呼ばれているはず(or Scm_Getc)
     (return (?: (== ch EOF) SCM_EOF (SCM_MAKE_CHAR ch)))))
 
 (define-cproc peek-char (:optional (port::<input-port> (current-input-port)))

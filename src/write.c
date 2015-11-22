@@ -50,6 +50,7 @@ static void write_object(ScmObj obj, ScmPort *out, ScmWriteContext *ctx);
 static ScmObj write_object_fallback(ScmObj *args, int nargs, ScmGeneric *gf);
 SCM_DEFINE_GENERIC(Scm_GenericWriteObject, write_object_fallback, NULL);
 
+// Global 変数みたい (現在の出力先のport)
 static const ScmWriteControls *defaultWriteControls;
 
 /*============================================================
@@ -786,7 +787,7 @@ static void write_ss(ScmObj obj, ScmPort *port, ScmWriteContext *ctx)
     cleanup_port_write_state(port);
 }
 
-/*OBSOLETED*/
+/*OBSOLETED*/  // 古い
 /*format is now in Scheme (libfmt.scm).*/
 void Scm_Format(ScmPort *out, ScmString *fmt, ScmObj args, int sharedp)
 {

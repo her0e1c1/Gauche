@@ -383,12 +383,15 @@ int Scm_FdReady(int fd, int dir)
  *       |*********************************-----|
  *        ^                                ^     ^
  *        b                                c     e
- *
+
+ *    flusherを使うと、[b, c)まで出力するっぽい
  *    The flusher is supposed to output the cnt bytes of data beginning from
  *    the buffer, which is usually up to the current pointer (but the flusher
  *    doesn't need to check the current pointer; it is taken care of by the
  *    caller of the flusher).
  *
+ *    flusherは必ず1文字は出力しないといけないっぽい(T/Fいずれでも)
+
  *    If the third argument forcep is false, the flusher may return before
  *    entire data is output, in case like underlying device is busy.
  *    The flusher must output at least one byte even in that case.
@@ -406,7 +409,10 @@ int Scm_FdReady(int fd, int dir)
  *
  *    After the flusher returns, bufport_flush shifts the unflushed data
  *    (if any), so the buffer becomes like this:
- *
+
+ *    全部出力するわけではなさそう? unflushなdataがbに来るっぽい (memmoveしてるね!)
+ *    つまり、unflushed dataはbからcopyする
+
  *        <--------------- size ---------------->
  *       |****----------------------------------|
  *        ^   ^                                  ^
@@ -615,6 +621,7 @@ static void bufport_flush(ScmPort *p, int cnt, int forcep)
 
     if (cursiz == 0) return;
     if (cnt <= 0)  { cnt = cursiz; }
+    // ここで書き込み開始、書き込んだ数がnwrote
     int nwrote = p->src.buf.flusher(p, cnt, forcep);
     if (nwrote < 0) {
         p->src.buf.current = p->src.buf.buffer; /* for safety */

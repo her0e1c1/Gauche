@@ -392,7 +392,7 @@ ScmObj Scm_ListTail(ScmObj list, ScmSmallInt i, ScmObj fallback)
     // iが末尾のときもありうるので、O(n)
     while (cnt-- > 0) {
         if (!SCM_PAIRP(list)) goto err;
-        list = SCM_CDR(list);
+        list = SCM_CDR(list);  // 先頭POINTERを一つずつ後ろにしていく
     }
     return list;
   err:
@@ -400,6 +400,7 @@ ScmObj Scm_ListTail(ScmObj list, ScmSmallInt i, ScmObj fallback)
     return fallback;
 }
 
+//  (ref '(1 2 3) 0)  ; 1
 ScmObj Scm_ListRef(ScmObj list, ScmSmallInt i, ScmObj fallback)
 {
     if (i < 0) goto err;
@@ -407,9 +408,11 @@ ScmObj Scm_ListRef(ScmObj list, ScmSmallInt i, ScmObj fallback)
         if (!SCM_PAIRP(list)) goto err;
         list = SCM_CDR(list);
     }
+    // Scm_ListTailと同じだけど、それが返す先頭要素をここで返す
     if (!SCM_PAIRP(list)) goto err;
     return SCM_CAR(list);
   err:
+    //  (ref '(1 2 3) 10)  ; error
     if (SCM_UNBOUNDP(fallback)) {
         Scm_Error("argument out of range: %ld", i);
     }
@@ -420,7 +423,7 @@ ScmObj Scm_ListRef(ScmObj list, ScmSmallInt i, ScmObj fallback)
  *   Return last pair of (maybe improper) list L.
  *   If L is not a pair, signal error.
  */
-
+// (last-pair '(1 2 3 4))  => '(4)  O(n)
 ScmObj Scm_LastPair(ScmObj l)
 {
     if (!SCM_PAIRP(l)) Scm_Error("pair required: %S", l);
@@ -428,8 +431,11 @@ ScmObj Scm_LastPair(ScmObj l)
     ScmObj cp;
     SCM_FOR_EACH(cp, l) {
         ScmObj cdr = SCM_CDR(cp);
+        // '(1 2 3) => '(2 3) => '(3)
+        // '(3)を返す
         if (!SCM_PAIRP(cdr)) return cp;
     }
+    // PAIRが保証されているので、ここにはこないはず
     return SCM_UNDEFINED;       /* NOTREACHED */
 }
 
@@ -442,13 +448,16 @@ ScmObj Scm_LastPair(ScmObj l)
 
 ScmObj Scm_Memq(ScmObj obj, ScmObj list)
 {
+  // Memqはeq? (pointer演算) O(n)
+  // (memq  'b '(a b c))  ; (b c)
     SCM_FOR_EACH(list, list) if (obj == SCM_CAR(list)) return list;
     return SCM_FALSE;
 }
 
 ScmObj Scm_Memv(ScmObj obj, ScmObj list)
 {
-    SCM_FOR_EACH(list, list) {
+  // memvは eqv?
+  SCM_FOR_EACH(list, list) {
         if (Scm_EqvP(obj, SCM_CAR(list))) return list;
     }
     return SCM_FALSE;
@@ -456,6 +465,8 @@ ScmObj Scm_Memv(ScmObj obj, ScmObj list)
 
 ScmObj Scm_Member(ScmObj obj, ScmObj list, int cmpmode)
 {
+  // modeによって、eq/eqv/equalのいずれかになる
+  //  (member 1.0 '(a 1.0 c) eq?)  => #f
     SCM_FOR_EACH(list, list) {
         if (Scm_EqualM(obj, SCM_CAR(list), cmpmode)) return list;
     }
@@ -463,11 +474,14 @@ ScmObj Scm_Member(ScmObj obj, ScmObj list, int cmpmode)
 }
 
 /* delete. */
+//  (delete 2 '(1 2 3) eq?) => (1 3)
+// (delete 2 '(1 2 3 2 3) eq?)  => (1 3 3)
 ScmObj Scm_Delete(ScmObj obj, ScmObj list, int cmpmode)
 {
     if (SCM_NULLP(list)) return SCM_NIL;
 
     ScmObj start = SCM_NIL, last = SCM_NIL, cp, prev = list;
+    // :TODO: きちんと(delete list)を理解する
     SCM_FOR_EACH(cp, list) {
         if (Scm_EqualM(obj, SCM_CAR(cp), cmpmode)) {
             for (; prev != cp; prev = SCM_CDR(prev))
@@ -475,20 +489,24 @@ ScmObj Scm_Delete(ScmObj obj, ScmObj list, int cmpmode)
             prev = SCM_CDR(cp);
         }
     }
+    // 等しいものがみつからなかったのでprevが初期状態のままだった
     if (list == prev) return list;
+
     if (SCM_NULLP(start)) return prev;
     if (SCM_PAIRP(prev)) SCM_SET_CDR(last, prev);
     return start;
 }
 
+// こっちは一般的なlistのdeleteだと思うが
 ScmObj Scm_DeleteX(ScmObj obj, ScmObj list, int cmpmode)
 {
     ScmObj cp, prev = SCM_NIL;
     SCM_FOR_EACH(cp, list) {
         if (Scm_EqualM(obj, SCM_CAR(cp), cmpmode)) {
             if (SCM_NULLP(prev)) {
-                list = SCM_CDR(cp);
+              list = SCM_CDR(cp);  // 先頭で不要な要素がある場合は, pointerを進める
             } else {
+              // そうでない場合は、一つ前のlistの参照を書き換える(node->next = node->next->next)
                 SCM_SET_CDR(prev, SCM_CDR(cp));
             }
         } else {
@@ -505,13 +523,17 @@ ScmObj Scm_DeleteX(ScmObj obj, ScmObj list, int cmpmode)
  *    is obj.  If ALIST contains non pair, it's silently ignored.
  */
 
+// assq / assv / assoc はそれぞれeq/eqv/equalだね(比較以外は同じ)
+//  (assq 1 '(1 2 3 (1 . a) (1 . b)))  => (1 . a)
 ScmObj Scm_Assq(ScmObj obj, ScmObj alist)
 {
     if (!SCM_LISTP(alist)) Scm_Error("assq: list required, but got %S", alist);
     ScmObj cp;
     SCM_FOR_EACH(cp,alist) {
         ScmObj entry = SCM_CAR(cp);
+        // alist自体は、どんな要素があっても無視されるみたい
         if (!SCM_PAIRP(entry)) continue;
+        // 最初に見つかったpairを返すだけみたい
         if (obj == SCM_CAR(entry)) return entry;
     }
     return SCM_FALSE;
