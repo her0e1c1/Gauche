@@ -51,6 +51,7 @@
 ;;;
 
 ;; API
+;; 文字列でなく現在のportを受け取るところがミソ
 (define (make-csv-reader separator :optional (quote-char #\"))
   (^[:optional (port (current-input-port))]
     (csv-reader separator quote-char port)))
@@ -58,14 +59,19 @@
 (define (csv-reader sep quo port)
   (define (eor? ch) (or (eqv? ch #\newline) (eof-object? ch)))
 
+  ; fieldsは、各レコードの要素のlist
   (define (start fields)
     (let1 ch (read-char port)
       (cond [(eor? ch) (reverse! (cons "" fields))]
             [(eqv? ch sep) (start (cons "" fields))]
             [(eqv? ch quo) (quoted fields)]
-            [(char-whitespace? ch) (start fields)]
-            [else (unquoted (list ch) fields)])))
+            [(char-whitespace? ch) (start fields)]  ; 空白は無視
+            [else (unquoted (list ch) fields)])))  ; unquotedへ遷移(現在の文字列は結果に格納)
 
+  ; chsは、unquotedが返す結果
+  ; , STRING ,
+  ; みたいに、カンマの間に空白がある場合を考慮して、lastとchsを二つ用意しておく
+  ; chsは、空白文字も読み込むが、lastは無視する
   (define (unquoted chs fields)
     (let loop ([ch (read-char port)] [last chs] [chs chs])
       (cond [(eor? ch) (reverse! (cons (finish last) fields))]
@@ -74,22 +80,30 @@
             [else (let1 chs (cons ch chs)
                     (loop (read-char port) chs chs))])))
 
+  ; 文字列を格納するときに、逆向きにして返す(型変換も行う)
   (define (finish rchrs) (list->string (reverse! rchrs)))
 
   (define (quoted fields)
+    ; chには、portから一文字ずつ読み込まれる portはglobal変数っぽいがどこで定義したかというと
+    ; csv-readerの引数にportがありました! (read-char port)を繰り返し実行するのね
+    ; chsが結果
     (let loop ([ch (read-char port)] [chs '()])
-      (cond [(eof-object? ch) (error "unterminated quoted field")]
-            [(eqv? ch quo)
-             (if (eqv? (peek-char port) quo)
+      (cond [(eof-object? ch) (error "unterminated quoted field")] ; 閉じ"がない
+            [(eqv? ch quo) ; "があった
+             (if (eqv? (peek-char port) quo)  ; ""が連続した場合(peekは消費しないのかな)
+               ; 二つ目の"は読み飛ばして、次へ進む
                (begin (read-char port) (loop (read-char port) (cons quo chs)))
                (quoted-tail (cons (finish chs) fields)))]
-            [else (loop (read-char port) (cons ch chs))])))
+            [else (loop (read-char port) (cons ch chs))])))  ; 読み進める
 
+  ; "文字列"がよみおわったが、次にどの状態へ遷移するか決める
+  ; "",  or ""\n or ""<eof>の場合に限り状態を進めるので
+  ; "  " hoge , とかが、あるとhogeは無視される
   (define (quoted-tail fields)
     (let loop ([ch (read-char port)])
       (cond [(eor? ch) (reverse! fields)]
-            [(eqv? ch sep) (start fields)]
-            [else (loop (read-char port))])))
+            [(eqv? ch sep) (start fields)]  ; 区切り文字があったので、
+            [else (loop (read-char port))])))  ; それ以外は無視
 
   (if (eof-object? (peek-char port))
     (eof-object)

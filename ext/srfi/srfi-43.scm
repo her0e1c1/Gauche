@@ -491,9 +491,12 @@
 (define (vector-concatenate vector-list)
   (vector-concatenate:aux vector-list vector-concatenate))
 
+;;; appendとconcatenateは、引数が可変かそうでないかの違い(applyで代用できる)
+;;; 配列のappendは、領域の確保をするために始めに長さを算出するのがセオリー
 ;;; Auxiliary for VECTOR-APPEND and VECTOR-CONCATENATE
 (define vector-concatenate:aux
   (letrec ([compute-length
+            ; vectorsの各vectorの長さの総和
             (^[vectors len callee]
               (if (null? vectors)
                 len
@@ -507,12 +510,16 @@
                 target
                 (let* ([vec1 (car vectors)]
                        [len (vector-length vec1)])
+                  ; new-vectorのto番目に、vec1を加える
                   (%vector-copy! target to vec1 0 len)
+                  ; 次の要素へ
                   (concatenate! (cdr vectors) target
                                 (+ to len)))))])
+    ; 引数みたい 
     (^[vectors callee]
       (cond [(null? vectors)            ;+++
              (make-vector 0)]
+            ; 要素1
             [(null? (cdr vectors))      ;+++
              ;; Blech, we still have to allocate a new one.
              (let* ([vec (check-type vector? (car vectors) callee)]
@@ -521,7 +528,9 @@
                (%vector-copy! new 0 vec 0 len)
                new)]
             [else
+             ; new-vectorを定義して、それを返す
              (rlet1 new-vector
+                 ; (callee . vectors)なので、各々のvectorの配列の長さを蓄積させる(そのmemoryを前もって確保)
                  (make-vector (compute-length vectors 0 callee))
                (concatenate! vectors new-vector 0))]))))
 

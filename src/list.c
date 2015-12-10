@@ -177,7 +177,6 @@ ScmObj *Scm_ListToArray(ScmObj list, int *nelts, ScmObj *store, int alloc)
 }
 
 /* cXr stuff */
-
 #define CXR(cname, sname, body)                 \
 ScmObj cname (ScmObj obj)                       \
 {                                               \
@@ -194,11 +193,13 @@ ScmObj cname (ScmObj obj)                       \
    if (!SCM_PAIRP(obj2)) Scm_Error("bad object: %S", obj);      \
    obj2 = SCM_CDR(obj2);
 
+// car (X=a)
 CXR(Scm_Car, "car", A)
 CXR(Scm_Cdr, "cdr", D)
-CXR(Scm_Caar, "caar", A A)
+CXR(Scm_Caar, "caar", A A)  // ２回Aを実行 (CAR(CAR(obj2)))
 CXR(Scm_Cadr, "cadr", D A)
 CXR(Scm_Cdar, "cdar", A D)
+// cddr (X=dd)
 CXR(Scm_Cddr, "cddr", D D)
 
 /*
@@ -329,21 +330,24 @@ ScmObj Scm_Append(ScmObj args)
  *    Scm_Reverse2(list, SCM_NIL).  Just for the backward compatibility.
  */
 
+// リストをreverse(破壊的でない)
 ScmObj Scm_Reverse2(ScmObj list, ScmObj tail)
 {
     if (!SCM_PAIRP(list)) return tail;
 
     ScmPair *p = SCM_NEW(ScmPair);
     SCM_SET_CAR(p, SCM_NIL);
-    SCM_SET_CDR(p, tail);
+    SCM_SET_CDR(p, tail); //  (NIL . NIL) の状態
     ScmObj result = SCM_OBJ(p);
     ScmObj cp;
     SCM_FOR_EACH(cp, list) {
         SCM_SET_CAR(result, SCM_CAR(cp));
+        // 上と同じコードを記述
         p = SCM_NEW(ScmPair);
+        // carにNILをセット。（これはreturnのときに無視される）
         SCM_SET_CAR(p, SCM_NIL);
         SCM_SET_CDR(p, result);
-        result = SCM_OBJ(p);
+        result = SCM_OBJ(p);  // resultは常に先頭
     }
     return SCM_CDR(result);
 }
@@ -353,7 +357,7 @@ ScmObj Scm_Reverse(ScmObj list)
     return Scm_Reverse2(list, SCM_NIL);
 }
 
-
+// リストをreverse(破壊的)
 /* Scm_Reverse2X(list, tail)
  *   Return reversed list of LIST.  Pairs in previous LIST is used to
  *   create new list.  TAIL is appended to the result.
@@ -366,7 +370,7 @@ ScmObj Scm_Reverse2X(ScmObj list, ScmObj tail)
     if (!SCM_PAIRP(list)) return tail;
     ScmObj first, next, result = tail;
     for (first = list; SCM_PAIRP(first); first = next) {
-        next = SCM_CDR(first);
+      next = SCM_CDR(first);  // first自体は、リストの要素を順にたどる
         SCM_SET_CDR(first, result);
         result = first;
     }

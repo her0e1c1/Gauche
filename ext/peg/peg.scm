@@ -170,8 +170,12 @@
 (define-method write-object ((o <parse-error>) out)
   (format out "#<<parse-error> ~S>" (~ o 'message)))
 
+; inlineは、そのまま式１=>式２に展開するみたいね!
 (define-inline (parse-success? x) (not x))
 
+; returnは、3つの状態を返す
+; エラーmsg, 現在の値、残りのストリーム文字列stringではなくlist of chars
+; parse-success?をみるように、#fの場合にtになる
 (define-macro (return-result value s)
   `(values #f ,value ,s))
 
@@ -285,12 +289,15 @@
 ;;; Lazily-constructed string
 ;;;
 
+; タグづけしてる
 (define-inline (make-rope obj)
   (cons 'rope obj))
 
+; obj でなく ('rope obj)なら#t
 (define-inline (rope? obj)
   (and (pair? obj) (eq? (car obj) 'rope)))
 
+; ここは後回しで
 (inline-stub
  (define-cfn rope2string_int (obj p) ::void :static
    (label restart)
@@ -317,12 +324,16 @@
 ;;; Primitives
 ;;;
 
+; (values #f val s) を返すだけね、（streamは消費されず、その次へ）
 (define-inline ($return val) (^s (return-result val s)))
 
 (define ($fail msg) (^s (return-failure/message msg s)))
 
 ;; return a parser that tries PARSE.  On success, returns what it
 ;; returned.  On failure, returns 'fail-expect with MSG.
+; streamを受け取る手続きを返す!
+; この手続きでは、成功した場合に、(#f まっち文字 残りのlist of chars)を返してる
+; (($expect ($char #\a) "a is expected") (list #\a)) ; => #f
 (define ($expect parse msg)
   (^s (receive (r v ss) (parse s)
         (if (parse-success? r)
@@ -345,6 +356,7 @@
 ;; p :: Parser
 ;; f :: Value -> Parser
 ;; $bind :: Parser, (Value -> Parser) -> Parser
+;; monadだね。成功したら、次のstreamに対してfを適用するっぽい
 (define-inline ($bind p f)
   (^s (receive [r v s1] (p s)
         (if (parse-success? r)
@@ -354,23 +366,28 @@
 ;; API
 ;; $lift :: (a,...) -> b, (Parser,..) -> Parser
 ;; ($lift f parser) == ($do [x parser] ($return (f x)))
+; 順次parserをstreamに対して適応させる。あとはマッチ結果をliftに入れておき、fで適応
 (define-inline ($lift f . parsers)
   ;; We don't use the straightforward definition (using $do or $bind)
   ;; to reduce closure construction.
   (^s (let accum ([s s] [parsers parsers] [vs '()])
         (if (null? parsers)
+          ; parsersを順番に適応させて、vsに結果格納か
+          ; まとめてfで実行
           (return-result (apply f (reverse vs)) s)
           (receive [r v s1] ((car parsers) s)
             (if (parse-success? r)
               (accum s1 (cdr parsers) (cons v vs))
+              ; 失敗したのでparser終了
               (values r v s1)))))))
 
 ;; API
 ;; Like $lift, but f gets single list argument
+;; applyを使わないバージョン
 (define-inline ($lift* f . parsers)
   (^s (let accum ([s s] [parsers parsers] [vs '()])
         (if (null? parsers)
-          (return-result (f (reverse vs)) s)
+          (return-result (f (reverse vs)) s)  ; (apply f (rev vs))じゃない
           (receive [r v s1] ((car parsers) s)
             (if (parse-success? r)
               (accum s1 (cdr parsers) (cons v vs))
@@ -406,6 +423,12 @@
      ($bind parser (^_ ($do clause . rest)))]
     [(_  . other) (syntax-error "malformed $do" ($do . other))]))
 
+;; 再帰と終了条件をどう表現するのかが大切っぽい(aとAの違い)
+;; ($or A B) != ($or B A)
+;; $tryを使うことは、Aが失敗したときに、消費を元に戻すのであって、
+;; Aの経路で失敗した場合にBを実行する訳ではない(Aが成功すれば、Aの後で失敗しても、Bは実行されない!)
+;; つまり、再帰を記述するなら、Aに再帰、Bに終端を指定しないといけない(Aが終端だと、A自体のparseは成功する)
+;; ($or ($try A) B)
 ;; API
 ;; $or p1 p2 ...
 ;;   Ordered choice.
@@ -417,14 +440,15 @@
   (match parsers
     [()  (^s (return-failure/message "empty $or" s))]
     [(p) p]
-    [(ps ...)
-     (^s (let loop ([vs '()] [ps ps])
+    [(ps ...)  ; ps ...と書くとpsにlist入るっぽい
+     (^s (let loop ([vs '()] [ps ps]) ; vsはエラーメッセージ格納
            (if (null? ps)
-             (fail vs s)
+             (fail vs s)  ; ps全て使い切ったor自体のエラー
              (receive (r v s1) ((car ps) s)
                (cond [(parse-success? r) (values r v s1)]
-                     [(eq? s s1) (loop (acons r v vs) (cdr ps))]
-                     [(null? vs) (values r v s1)]
+                     ; 以下、エラーの場合(3つに分かれているのはなぜ?)
+                     [(eq? s s1) (loop (acons r v vs) (cdr ps))]  ;入力を消費しなかったので次(エラー格納)
+                     [(null? vs) (values r v s1)]  ; 入力消費、かつ、初めてのエラー(ここで返しちゃうみたい)
                      [else (fail (acons r v vs) s1)])))))]))
 
 ;; API
@@ -441,9 +465,12 @@
   (if (null? ps)
     ($return seed)
     (lambda (s)
-      (let loop ((s s) (ps ps) (seed seed))
+     ; 再帰(loop stream-list-of-chars seed? list-of-parsers
+     ; ps == '(($s "abc") ($s "efg"))
+     (let loop ((s s) (ps ps) (seed seed))
         (if (null? ps)
           (return-result seed s)
+          ; psの一つ目のparserをstreamに対して実行
           (receive (r1 v1 s1) ((car ps) s)
             (if (parse-success? r1)
               (loop s1 (cdr ps) (proc v1 seed))
@@ -466,6 +493,8 @@
   ($fold-parsers (^[v s] v) #f parsers))
 
 ;; API
+;; $orとしか、一緒に使わないのかね
+
 ;; $try parser
 ;;   Try to match parsers.  If it fails, backtrack to
 ;;   the starting position of the stream.  So,
@@ -473,13 +502,24 @@
 ;;         ($try b)
 ;;         ...)
 ;;   would try a, b, ... even some of them consumes the input.
+
+;; 成功したら、
+;; 失敗したら、もとのstreamを使う
+;; (^stream (values result matched-char rest-of-chars))
+
+; エラーをキャッチしてparseをやめてしまう
+; optionalをつけて、エラーをすてるように修正する必要あり
+; (define %p1 ($seq ($s "abc") ($try ($s "efg")) ($s "A")))
+; (define %p1 ($seq ($s "abc") ($try ($optional ($s "efg"))) ($s "A")))
+;(p (rv a (pps %p1 "abcA") a))
 (define-inline ($try p)
   (^[s0] (receive (r v s) (p s0)
-           (if (not r)
+           (if (not r)  ; :ERROR: parse-success?を使うべき
              (return-result v s)
              (values r v s0)))))
 
 ;; API
+; 評価を遅らせるのね
 (define-syntax $lazy
   (syntax-rules ()
     [(_ parse)
@@ -557,6 +597,7 @@
 ;;   Try P.  If not match, use FALLBACK as the value.
 ;;   Does not backtrack by default; if P may consume some input and
 ;;   you want to backtrack later, wrap it with $try.
+;; parseで消費した場合もありうる(その場合は$tryでラップするみたい?)
 (define ($optional parse :optional (fallback #f))
   ($or parse ($return fallback)))
 
@@ -626,12 +667,14 @@
 ;; API
 ;; $between A B C
 ;;   Matches A B C, and returns the result of B.
+;; A Cにマッチして、すてる。Bのみそのまま値を返す
 (define ($between open parse close)
   ($do open [v parse] close ($return v)))
 
 ;; API
 ;; $followed-by P S ...
 ;;   Matches P S ..., and returns the result of P.
+;; Pを結果として返す.(残りはマッチするがすてる)
 (define ($followed-by parse . followers)
   (apply $lift (^[v . _] v) parse followers))
 
@@ -643,7 +686,7 @@
 (define ($not parse)
   (lambda (s0)
     (receive (r v s) (parse s0)
-      (if r
+      (if r  ; (not (succeed? r)) としたほうがよさげ(単純に否定ってだけね)
         (return-result #f s)
         (return-failure/unexpect v s0)))))
 
@@ -681,14 +724,19 @@
 
 ;; API
 ;; $satisfy
+; (cut char=? c <>)みたいにして
+; pはpred, xは条件か
+; (p x (car s))で、streamの一文字取り出して比較っぽい(streamがpairでないとだめみたい)
 (define-syntax $satisfy
+  ; cut <>は予約語として働く(つまり、評価されないのね)
   (syntax-rules (cut <>)
     [(_ (cut p x <>) expect)            ;TODO: hygiene!
      (lambda (s)
        (if (and (pair? s) (p x (car s)))
+         ; マッチした場合 (return-result 文字 残りの文字列)
          (return-result (car s) (cdr s))
          (return-failure/expect expect s)))]
-    [(_ pred expect)
+    [(_ pred expect) ; 入力文字だけでt/f判断
      (lambda (s)
        (if (and (pair? s) (pred (car s)))
          (return-result (car s) (cdr s))
@@ -702,6 +750,7 @@
 ;;; String parsers
 ;;;
 
+;;; 文字列の生成にコストがかからないようにするみたい
 (define-inline ($->rope parser . more-parsers)
   (if (null? more-parsers)
     ($lift make-rope parser)
@@ -728,22 +777,30 @@
 
 (define-values ($string $string-ci)
   (let-syntax
-      ([expand
+      ([expand  ; この関数を読み出してるのね
         (syntax-rules ()
           ((_ char=)
            (lambda (str)
+             ; ($string "string")なので、list-of-charsに変更
              (let1 lis (string->list str)
+               ; ここからstream操作
                (lambda (s0)
                  (let loop ((r '()) (s s0) (lis lis))
                    (if (null? lis)
+                     ; 文字列を全て読み込んだら まっち文字列を反転させて、残りストリーム返すのね
+                     ; ('rope matched-string)返してる(tagづけ)
                      (return-result (make-rope (reverse! r)) s)
                      (if (and (pair? s)
                               (char= (car s) (car lis)))
                        (loop (cons (car s) r) (cdr s) (cdr lis))
+                       ; 失敗した場合、s0を返す!($orのとき、途中で失敗しても、消費は元に戻る!)
                        (return-failure/expect str s0)))))))))])
+    ; まとめて定義してるみたい (char-ci=?とまっちしなくね?)
     (values (expand char=?)
             (expand char-ci=?))))
 
+; $satisfiyは、現在の入力を一つ受け取って、t/f返すのね
+; second argは、listとかで、期待される文字、文字列
 (define ($char c)
   ($satisfy (cut char=? c <>) c))
 
@@ -755,6 +812,7 @@
   ($satisfy (cut char-set-contains? charset <>)
             charset))
 
+; 短くしただけ
 (define ($s x) ($string x))
 
 (define ($c x) ($char x))
@@ -763,26 +821,34 @@
 
 ;; ($many-chars charset [min [max]]) == ($many ($one-of charset) [min [max]])
 ;;   with possible optimization.
+;; 文字列にマッチする回数を指定できる(min~max回)
 (define-syntax $many-chars
   (syntax-rules ()
     [(_ parser) ($many ($one-of parser))]
     [(_ parser min) ($many ($one-of parser) min)]
     [(_ parser min max) ($many ($one-of parser) min max)]))
 
+; #[^X-Y]ってことか
 (define ($none-of charset)
   ($one-of (char-set-complement charset)))
 
+; (receive a (anychar (list #\a #\b)) a)
 (define (anychar s)
-  (if (pair? s)
+  (if (pair? s) ; 文字列でなくlist of chars
     (return-result (car s) (cdr s))
     (return-failure/expect "character" s)))
 
+; 下で使うmacro
+; 
 (define-syntax define-char-parser
   (syntax-rules ()
     ((_ proc charset expect)
+     ; procの名前をそのまま関数として定義してる!
      (define proc
        ($expect ($one-of charset) expect)))))
 
+; anycharと同じだ
+; (recieve a (tab (list #\a #\tab)) a)
 (define-char-parser upper    #[A-Z]         "upper case letter")
 (define-char-parser lower    #[a-z]         "lower case letter")
 (define-char-parser letter   #[A-Za-z]      "letter")

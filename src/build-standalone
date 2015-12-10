@@ -34,6 +34,7 @@
 (use gauche.cgen.standalone)
 (use gauche.parseopt)
 
+; build-standaloneに処理をCIから渡すだけ
 (define (usage)
   (print "Usage: make-standalone [-o outfile][-I dir][-L dir] file.scm")
   (print "  -o outfile  Specify output file name.")

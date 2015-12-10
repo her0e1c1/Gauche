@@ -38,7 +38,7 @@
 
 struct ScmSymbolRec {
     SCM_HEADER;
-    ScmString *name;
+  ScmString *name;  // symbolは内側に文字列を持つのね!
     int        flags;
 };
 

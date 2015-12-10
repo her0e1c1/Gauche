@@ -112,6 +112,7 @@
 
 (define (null-env)      (make-env 'stmt '()))
 
+;; 計算前に、(expr-env env)としてる
 (define (expr-env env)
   (if (expr-ctx? env) env (make-env 'expr (env-decls env))))
 (define (stmt-env env)
@@ -767,6 +768,11 @@
       [(_ (var expr) . body)
        `(let* ((,var :: int 0) (,n :: int ,expr))
           (for [() (< ,var ,n) (post++ ,var)] ,@body))])))
+; (dotimes (10) (print 1))
+
+; (dotimes (i 10) (print i))
+; (let ((i 0) (G 10)) (for [() (< i G) (inc! i) (print i)]))
+
 
 ;; [cise stmt] return EXPR
 ;;   Return statement.
@@ -881,6 +887,8 @@
 ;;   Address ops.
 ;;
 ;; [cise expr] pre++ EXPR
+
+;; (inc! i)みたいな感じかな => i++とcで出力されるんだと思う
 ;; [cise expr] post++ EXPR
 ;; [cise expr] pre-- EXPR
 ;; [cise expr] post-- EXPR
@@ -987,7 +995,7 @@
         [(_ a)   (list "("(render-rec a (expr-env env))")" ,sop)])
       env)))
 
-(define-post-unary post++ "++")
+(define-post-unary post++ "++") ;; a++(postなので後)
 (define-post-unary post-- "--")
 
 (define-macro (define-binary op sop)
@@ -995,6 +1003,7 @@
      (wrap-expr
       (match form
         [(_ a b)
+         ; (a) < (b) と出力させるみたい
          (list "("(render-rec a (expr-env env))")",sop
                "("(render-rec b (expr-env env))")")])
       env)))
@@ -1111,7 +1120,7 @@
   )
 
 (define-cise-expr list
-  [(_)           '("SCM_NIL")]
+  [(_)           '("SCM_NIL")]  ; (values)
   [(_ a)         `(SCM_LIST1 ,a)]
   [(_ a b)       `(SCM_LIST2 ,a ,b)]
   [(_ a b c)     `(SCM_LIST3 ,a ,b ,c)]
@@ -1119,6 +1128,7 @@
   [(_ a b c d e) `(SCM_LIST5 ,a ,b ,c ,d ,e)]
   [(_ xs ...)     (fold-right (cut list 'Scm_Cons <> <>) 'SCM_NIL xs)])
 
+; (values 1)
 (define-cise-expr values
   [(_)           '("Scm_Values(SCM_NIL)")]
   [(_ a)         a]
@@ -1173,45 +1183,66 @@
 ;; Allow var::type as (var :: type)
 ;; and (var::type init) as (var :: type init)
 (define (canonicalize-vardecl vardecls)
+  ; eltがatomでしょう
+  ; (a::b a:: b) => (a :: b a :: b) と正規化
   (define (expand-type elt seed)
     (cond
      [(keyword? elt)  ;; The case of (var ::type)
       (rxmatch-case (keyword->string elt)
+        ; (_ t) 第一グループにtと名前つけた
+        ; ::type
         [#/^:(.+)$/ (_ t) `(:: ,(string->symbol t) ,@seed)]
         [else (cons elt seed)])]
      [(symbol? elt)
       (rxmatch-case (symbol->string elt)
+        ; var:: type
         [#/^(.+)::$/ (_ v) `(,(string->symbol v) :: ,@seed)]
+        ; var::type
         [#/^(.+)::(.+)$/ (_ v t)
             `(,(string->symbol v) :: ,(string->symbol t) ,@seed)]
         [else (cons elt seed)])]
+     ; seedに結果が累積(そのまま格納するだけ)
      [else (cons elt seed)]))
 
   (define (err decl) (error "invlaid variable declaration:" decl))
 
   (define (scan in r)
     (match in
-      [() (reverse r)]
+      [() (reverse r)] ; rには結果が格納されてるが、逆順にする
+      ; (var :: type . rest) => (cons (var :: rest) (scan rest))
+      ; ?はmatchの拡張構文 symbol?が真であることが条件っぽい
+      ; s "(match 'b ([? symbol? a] 1))" 1
       [([? symbol? var] ':: type . rest)
        (scan rest `((,var :: ,type) ,@r))]
       [([? symbol? var] . rest)
        (scan rest `((,var :: ScmObj) ,@r))]
+      ;; 以下入れ子
+      ;; ((v1 v2 . args) .rest)
       [(([? symbol? v] [? symbol? t] . args) . rest)
        (scan rest `(,(expand-type v (expand-type t args)) ,@r))]
       [(([? symbol? vt] . args) . rest)
        (scan rest `(,(expand-type vt args) ,@r))]
+      ;; matchしなかった
       [(xx . rest) (err xx)]))
 
   (scan (fold-right expand-type '() vardecls) '()))
 
 ;; Like canonicalize-vardecl, but for argument declarations.
+;; ::の間にspaceがある場合、ない場合を全て考慮した構文解析
 ;; (foo::type bar baz:: type bee :: type)
 ;; => ((foo . type) (bar . ScmObj) (baz . type) (bee . type))
+; s '(match 1 [1 1])'
+; 1
+; s '(match 2 [1 1])' ;; error
 (define (canonicalize-argdecl argdecls)
+  ;; recは、再帰的に引数を評価 matchなので、他のケースは全てエラーとなる
   (define (rec args)
     (match (canonicalize-vardecl args)
+      ;; 最後(listとして返すため)
       [() '()]
+      ;; (var :: type) の記述
       [((var ':: type) . rest) `((,var . ,type) ,@(rec rest))]
+      ;; (foo ) のとき
       [(var . rest) `((,var . ScmObj) ,@(rec rest))]))
   (rec argdecls))
 

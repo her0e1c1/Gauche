@@ -42,6 +42,7 @@ static u_long insn2_freq[SCM_VM_NUM_INSNS][SCM_VM_NUM_INSNS];
 static u_long lref_freq[LREF_FREQ_COUNT_MAX][LREF_FREQ_COUNT_MAX];
 static u_long lset_freq[LREF_FREQ_COUNT_MAX][LREF_FREQ_COUNT_MAX];
 
+// staticで他から参照されてないって、どういうこと?
 static ScmWord fetch_insn_counting(ScmVM *vm, ScmWord code)
 {
     if (vm->base && vm->pc != vm->base->code) {
@@ -50,6 +51,8 @@ static ScmWord fetch_insn_counting(ScmVM *vm, ScmWord code)
     code = *vm->pc++;
     insn1_freq[SCM_VM_INSN_CODE(code)]++;
     switch (SCM_VM_INSN_CODE(code)) {
+      // よくわからんが、codeごとにcountしてるみたい
+      // 10*10の配列
     case SCM_VM_LREF0: lref_freq[0][0]++; break;
     case SCM_VM_LREF1: lref_freq[0][1]++; break;
     case SCM_VM_LREF2: lref_freq[0][2]++; break;

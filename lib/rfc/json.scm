@@ -91,7 +91,7 @@
          ($or ($string "false") ($string "true") ($string "null"))))
 
 (define %value
-  ($lazy
+  ($lazy  ; %arrayなどは、ここの段階ではdefineされていない。その評価を遅らせるためにlazy使う(再帰的なものには必要ね)
    ($lift (^[v _] v) ($or %special %object %array %number %string) %ws)))
 
 (define %array
@@ -147,22 +147,27 @@
                [else ($return (ucs->char c))]))))
 
 (define %string
-  (let* ([%dquote ($char #\")]
-         [%escape ($char #\\)]
+  (let* ([%dquote ($char #\")] ; betweenの間文字
+         [%escape ($char #\\)] ; $do エスケープ
          [%special-char
+          ; \にマッチしたら、それは捨てて
           ($do %escape
                ($or ($char #\")
                     ($char #\\)
                     ($char #\/)
+                    ; ここまでは、その文字を返すだけっぽい
+
                     ($do [($char #\b)] ($return #\x08))
                     ($do [($char #\f)] ($return #\page))
-                    ($do [($char #\n)] ($return #\newline))
+                    ($do [($char #\n)] ($return #\newline))  ; "\n"なら#\newlineを返す
                     ($do [($char #\r)] ($return #\return))
                     ($do [($char #\t)] ($return #\tab))
                     %unicode))]
          [%unescaped ($none-of #[\"])]
+         ; 特殊文字か、そうでなければ、"以外にマッチ
          [%body-char ($or %special-char %unescaped)]
          [%string-body ($->rope ($many %body-char))])
+    ; "文字列" を読み込む
     ($between %dquote %string-body %dquote)))
 
 (define %object
@@ -228,6 +233,7 @@
         "" obj)
   (display "}"))
 
+; 0番目以外は,も合わせて出力
 (define (print-array obj)
   (display "[")
   (for-each-with-index (^[i val]

@@ -6,6 +6,17 @@
 (use file.util)
 (use gauche.cgen)
 (use gauche.parameter)
+
+; Scm_BuiltinSymbols
+
+; obtableがGlobal変数
+; init_builtin_syms 
+; 0は、Entryの(ない場合に)新規作成
+; #define INTERN(s, i) Scm_HashTableSet(obtable, s, SCM_OBJ(&Scm_BuiltinSymbols[i]), 0)
+; hash tableに、listのn番目のをセット
+; scm__scには、stringをセット(これがkeyになってる)
+; {文字列, symbol}のhash tableを構築してる
+
 (use gauche.sequence)
 
 (define *unit*
@@ -28,24 +39,38 @@
                "#include <gauche.h>")
 
     (cgen-extern "SCM_EXTERN ScmSymbol Scm_BuiltinSymbols[];")
+    ;; bodyの引数ももそのまま出力してるっぽい
+             ;; ScmSymbol Scm_BuiltinSymbols[] = {
     (cgen-body "ScmSymbol Scm_BuiltinSymbols[] = {")
     (cgen-body "#define ENTRY(s) \
                   {{ SCM_CLASS_STATIC_TAG(Scm_SymbolClass) }, \
                    SCM_STRING(s), SCM_SYMBOL_FLAG_INTERNED }")
+
+
+    ; #define SCM_STRING_CONST_INITIALIZER(str, len, siz) 
+    ; asciiなのでsizeとlenが一致してる
+    ; ScmStringを作ってるのね
+
+    ;; 273行目あたりから (そのままの文字列を出力)
+    ;; Scm_BuiltinSymbols 作成するのかな。
     (cgen-init "#define INTERN(s, i) \
                   Scm_HashTableSet(obtable, s, SCM_OBJ(&Scm_BuiltinSymbols[i]), 0)")
 
     (for-each-with-index
      (^[index entry]
+       ; index = 0スタート
+       ; entry = (quote SCM_SYM_QUOTE)
        (let* ([str (cgen-literal (symbol->string (car entry)))]
               [strref (cgen-cexpr str)]
               [macro-name (cadr entry)])
          (cgen-extern (format "#define ~a SCM_OBJ(&Scm_BuiltinSymbols[~a])"
                               macro-name index))
-         (cgen-body (format "ENTRY(~a)," strref))
+         ;; ENTRY(SCM_OBJ(&scm__sc.d1901[0])),
+         (cgen-body (format "ENTRY(~a)," strref))  ; strref = SCM_OBJ()
+         ;; INTERN(SCM_OBJ(&scm__sc.d1901[0]), 0);
          (cgen-init (format "INTERN(~a, ~a);" strref index))
          ))
-     (symbols))
+     (symbols))  ;; それぞれのsymbolを操作
 
     (cgen-body "#undef ENTRY")
     (cgen-body "};")
@@ -58,6 +83,8 @@
 
 ;; add predefined symbols below -------------------------------
 
+;; 5は文字数みたい
+;;  quote => SCM_STRING_CONST_INITIALIZER("quote", 5, 5), みたいに変換
 (define (symbols)
   '((quote                     SCM_SYM_QUOTE)
     (quasiquote                SCM_SYM_QUASIQUOTE)

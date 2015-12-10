@@ -486,6 +486,8 @@ typedef struct ScmInstanceRec {
 
 /* Fundamental allocators */
 #define SCM_MALLOC(size)          GC_MALLOC(size)
+
+// ATOMICと指定するだけで、メモリをスレッドセーフに取得できるみたい
 #define SCM_MALLOC_ATOMIC(size)   GC_MALLOC_ATOMIC(size)
 #define SCM_STRDUP(s)             GC_STRDUP(s)
 #define SCM_STRDUP_PARTIAL(s, n)  Scm_StrdupPartial(s, n)
@@ -628,6 +630,7 @@ SCM_EXTERN ScmObj Scm_VMDynamicWindC(ScmSubrProc *before,
                                      ScmSubrProc *after,
                                      void *data);
 
+// サンク (thunk) 引数を取らない手続きのこと
 SCM_EXTERN ScmObj Scm_VMWithErrorHandler(ScmObj handler, ScmObj thunk);
 SCM_EXTERN ScmObj Scm_VMWithGuardHandler(ScmObj handler, ScmObj thunk);
 SCM_EXTERN ScmObj Scm_VMWithExceptionHandler(ScmObj handler, ScmObj thunk);

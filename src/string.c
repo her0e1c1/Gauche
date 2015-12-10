@@ -171,6 +171,7 @@ static inline ScmSmallInt count_length(const char *str, ScmSmallInt size)
 /* Returns length of string, starts from str and end at stop.
    If stop is NULL, str is regarded as C-string (NUL terminated).
    If the string is incomplete, returns -1. */
+// (string-length #*"aiueoあ") => 8(不完全文字列)
 int Scm_MBLen(const char *str, const char *stop)
 {
   // stopによってsizeが変わる
@@ -784,21 +785,26 @@ ScmObj Scm_StringJoin(ScmObj strs, ScmString *delim, int grammer)
     int nstrs = Scm_Length(strs);
     if (nstrs < 0) Scm_Error("improper list not allowed: %S", strs);
     if (nstrs == 0) {
+        // (string-join '() "/" 'strict-infix) のときにerror
         if (grammer == SCM_STRING_JOIN_STRICT_INFIX) {
             Scm_Error("can't join empty list of strings with strict-infix grammer");
         }
-        return SCM_MAKE_STR("");
+        return SCM_MAKE_STR("");  // ""空文字
     }
 
+    // 文字列のpointerを長さだけ、用意
     if (nstrs > BODY_ARRAY_SIZE) {
         bodies = SCM_NEW_ARRAY(const ScmStringBody *, nstrs);
     } else {
         bodies = bodies_s;
     }
 
+    // delimは、1byte文字列とは限らない
+    // (string-join '("あ" "れ") "、") "あ、れ"
     const ScmStringBody *dbody = SCM_STRING_BODY(delim);
     ScmSmallInt dsize = SCM_STRING_BODY_SIZE(dbody);
     ScmSmallInt dlen  = SCM_STRING_BODY_LENGTH(dbody);
+    // 不完全文字列なら、それ.
     if (SCM_STRING_BODY_INCOMPLETE_P(dbody)) {
         flags |= SCM_STRING_INCOMPLETE;
     }
@@ -810,6 +816,7 @@ ScmObj Scm_StringJoin(ScmObj strs, ScmString *delim, int grammer)
         if (!SCM_STRINGP(SCM_CAR(cp))) {
             Scm_Error("string required, but got %S", SCM_CAR(cp));
         }
+        // リストの文字列を１つずつ取り出す
         b = SCM_STRING_BODY(SCM_CAR(cp));
         size += SCM_STRING_BODY_SIZE(b);
         len  += SCM_STRING_BODY_LENGTH(b);
@@ -817,8 +824,10 @@ ScmObj Scm_StringJoin(ScmObj strs, ScmString *delim, int grammer)
         if (SCM_STRING_BODY_INCOMPLETE_P(b)) {
             flags |= SCM_STRING_INCOMPLETE;
         }
+        // まずは、pointerだけを保持(長さは先に計算)
         bodies[i++] = b;
     }
+    // delimの数、a b c "/" => a/b/c (2つ必要)
     if (grammer == SCM_STRING_JOIN_INFIX
         || grammer == SCM_STRING_JOIN_STRICT_INFIX) {
         ndelim = nstrs - 1;
@@ -831,6 +840,7 @@ ScmObj Scm_StringJoin(ScmObj strs, ScmString *delim, int grammer)
 
     char *buf = SCM_NEW_ATOMIC2(char *, size+1);
     char *bufp = buf;
+    // prefixのときは始めに
     if (grammer == SCM_STRING_JOIN_PREFIX) {
         memcpy(bufp, SCM_STRING_BODY_START(dbody), dsize);
         bufp += dsize;
@@ -844,6 +854,7 @@ ScmObj Scm_StringJoin(ScmObj strs, ScmString *delim, int grammer)
             bufp += dsize;
         }
     }
+    // 最後につける
     if (grammer == SCM_STRING_JOIN_SUFFIX) {
         memcpy(bufp, SCM_STRING_BODY_START(dbody), dsize);
         bufp += dsize;

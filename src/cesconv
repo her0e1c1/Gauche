@@ -1,6 +1,7 @@
 ;;-*-Scheme-*-
 ;;
 
+; 不要
 ;; Kept for backward compatibility.  Will be gone soon.
 
 (define (main args)

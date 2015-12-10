@@ -611,6 +611,9 @@ ScmObj Scm_InitCommandLine(int argc, const char *argv[])
     ScmObj args = Scm_CStringArrayToList(argv, argc, SCM_STRING_IMMUTABLE);
     SCM_BIND_PROC(command_line_proc, "command-line", Scm_GaucheModule());
     Scm_ApplyRec1(command_line_proc, args);
+    
+    // global変数セットしてるのか.  
+    // 引数はどこからでも参照できるようにしてるのね.
     SCM_DEFINE(Scm_UserModule(), "*program-name*", SCM_CAR(args));
     SCM_DEFINE(Scm_UserModule(), "*argv*", SCM_CDR(args));
     return args;

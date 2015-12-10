@@ -299,6 +299,7 @@ SCM_EXTERN ScmObj  Scm_MaybeSubstring(ScmString *x, ScmObj start, ScmObj end);
    and SCM_STRING_CONST_INITIALIZER can be used inside static array
    of strings. */
 
+// builtin-scm.cで利用されてる(CONSTANT用のstring)
 #define SCM_STRING_CONST_INITIALIZER(str, len, siz)             \
     { { SCM_CLASS_STATIC_TAG(Scm_StringClass) }, NULL,          \
       { SCM_STRING_IMMUTABLE|SCM_STRING_TERMINATED, (len), (siz), (str) } }

@@ -252,6 +252,8 @@ static int regexp_compare(ScmObj x, ScmObj y, int equalp)
     ScmRegexp *rx = SCM_REGEXP(x);
     ScmRegexp *ry = SCM_REGEXP(y);
 
+    // (eq-compare #/a/ #/a/) ; 1
+  
     if ((rx->numCodes != ry->numCodes)
         || (rx->numGroups != ry->numGroups)
         || (rx->numSets != ry->numSets)

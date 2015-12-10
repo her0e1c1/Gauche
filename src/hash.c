@@ -275,18 +275,22 @@ static Entry *insert_entry(ScmHashCore *table,
     buckets[index] = e;
     table->numEntries++;
 
+    // rehash
     if (table->numEntries > table->numBuckets*MAX_AVG_CHAIN_LIMITS) {
         /* Extend the table */
         int newsize = (table->numBuckets << EXTEND_BITS);
         int newbits = table->numBucketsLog2 + EXTEND_BITS;
 
-        Entry **newb = SCM_NEW_ARRAY(Entry*, newsize);
+        Entry **newb = SCM_NEW_ARRAY(Entry*, newsize);  // 新しくメモリを確保
         for (int i=0; i<newsize; i++) newb[i] = NULL;
 
         ScmHashIter iter;
         Entry *f;
         Scm_HashIterInit(&iter, table);
         while ((f = (Entry*)Scm_HashIterNext(&iter)) != NULL) {
+          // tableのサイズも増えたので、hash値も更新する必要がある
+          // iterで全てのbucketを更新する?(entryの並び順はそのまま)
+          // O(newsize)かかるのかな?
             index = HASH2INDEX(newsize, newbits, f->hashval);
             f->next = newb[index];
             newb[index] = f;
@@ -310,12 +314,15 @@ static Entry *delete_entry(ScmHashCore *table,
                            Entry *entry, Entry *prev,
                            int index)
 {
+  // 参照させないことでGCの対象にするだけ
+  // なので、ここで明示的にfreeしない!
     if (prev) prev->next = entry->next;
+    // 先頭の要素を削除
     else table->buckets[index] = (void*)entry->next;
     table->numEntries--;
     SCM_ASSERT(table->numEntries >= 0);
     entry->next = NULL;         /* GC friendliness */
-    return entry;
+    return entry;  // 一応返す必要ある(unboundのときに#fを返したいから)
 }
 
 #define FOUND(table, op, e, p, index)                   \
@@ -412,6 +419,7 @@ static Entry *string_access(ScmHashCore *table, intptr_t k, ScmDictOp op)
     u_long index = HASH2INDEX(table->numBuckets, table->numBucketsLog2, hashval);
     Entry **buckets = (Entry**)table->buckets;
 
+    // pはprevious. 削除するときには、一つ前の要素が必要になる
     for (Entry *e = buckets[index], *p = NULL; e; p = e, e = e->next) {
         ScmObj ee = SCM_OBJ(e->key);
         const ScmStringBody *eeb = SCM_STRING_BODY(ee);
@@ -744,6 +752,7 @@ ScmObj Scm_HashTableSet(ScmHashTable *ht, ScmObj key, ScmObj value, int flags)
 {
     ScmDictEntry *e;
 
+    // flag=0のときは、Entryがない場合に新規作成するっぽい
     e = Scm_HashCoreSearch(SCM_HASH_TABLE_CORE(ht),
                            (intptr_t)key,
                            (flags&SCM_DICT_NO_CREATE)?SCM_DICT_GET: SCM_DICT_CREATE);
@@ -758,8 +767,11 @@ ScmObj Scm_HashTableSet(ScmHashTable *ht, ScmObj key, ScmObj value, int flags)
 
 ScmObj Scm_HashTableDelete(ScmHashTable *ht, ScmObj key)
 {
+  // 削除対象のentryを受け取ってるね, そんでそのvalue返してる
     ScmDictEntry *e = Scm_HashCoreSearch(SCM_HASH_TABLE_CORE(ht),
                                          (intptr_t)key, SCM_DICT_DELETE);
+
+    // (hash-table-delete! ht 'key) => #t/#fが帰ってくる
     if (e && e->value) return SCM_DICT_VALUE(e);
     else               return SCM_UNBOUND;
 }

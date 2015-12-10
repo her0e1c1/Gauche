@@ -175,12 +175,15 @@ ScmObj Scm_VectorFill(ScmVector *vec, ScmObj fill,
     return SCM_OBJ(vec);
 }
 
+// (vector-copy #(1 2 3) 1 2) => #(2)
 ScmObj Scm_VectorCopy(ScmVector *vec,
                       ScmSmallInt start, ScmSmallInt end, ScmObj fill)
 {
     ScmSmallInt len = SCM_VECTOR_SIZE(vec);
     ScmVector *v = NULL;
+    // endが不適切な場合は最大長(大きすぎな場合はfillが入るだけ)
     if (end < 0) end = len;
+
     if (end < start) {
         Scm_Error("vector-copy: start (%d) is greater than end (%d)",
                   start, end);
@@ -188,11 +191,14 @@ ScmObj Scm_VectorCopy(ScmVector *vec,
         v = make_vector(0);
     } else {
         if (SCM_UNBOUNDP(fill)) fill = SCM_UNDEFINED;
+        // 必要な長さだけメモリ確保
         v = make_vector(end - start);
         for (ScmSmallInt i=0; i<end-start; i++) {
+          // 範囲外は、fillで埋める
             if (i+start < 0 || i+start >= len) {
                 SCM_VECTOR_ELEMENT(v, i) = fill;
             } else {
+              // 範囲内は値をcopy
                 SCM_VECTOR_ELEMENT(v, i) = SCM_VECTOR_ELEMENT(vec, i+start);
             }
         }
@@ -468,7 +474,9 @@ ScmObj Scm_MakeU8Vector(ScmSmallInt size, unsigned char fill)
     return SCM_OBJ(u);
 }
 
+// 16bit (2byte)の要素のベクトル
 DEF_UVCTOR_FILL(S16, short)
+
 DEF_UVCTOR_FILL(U16, u_short)
 DEF_UVCTOR_FILL(S32, ScmInt32)
 DEF_UVCTOR_FILL(U32, ScmUInt32)

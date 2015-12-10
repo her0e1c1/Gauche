@@ -2,6 +2,7 @@
 ;;; precompiler
 ;;;
 
+;; 不要
 ;; This file is for the backward compatibility.  New makefile should
 ;; use "precomp".
 

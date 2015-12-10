@@ -197,6 +197,7 @@ ScmReadContext *Scm_SetCurrentReadContext(ScmReadContext *ctx)
     return SCM_READ_CONTEXT(p);
 }
 
+// ctxを返す
 static ScmReadContext *make_read_context(ScmReadContext *proto)
 {
     ScmReadContext *ctx = SCM_NEW(ScmReadContext);
@@ -1206,6 +1207,7 @@ static ScmObj read_char(ScmPort *port, ScmReadContext *ctx)
     case '(':; case ')':; case '[':; case ']':; case '{':; case '}':;
     case '"':; case ' ':; case '\\':; case '|':; case ';':;
     case '#':;
+      // そのまま#\"といったオブジェクトを返す
         return SCM_MAKE_CHAR(c);
     default: {
         /* need to read word to see if it is a character name */
@@ -1610,6 +1612,7 @@ static ScmObj reader_ctor(ScmObj *args, int nargs, void *data)
  * #!-support
  */
 
+// reader macro
 ScmObj Scm_DefineReaderDirective(ScmObj symbol, ScmObj proc)
 {
     (void)SCM_INTERNAL_MUTEX_LOCK(hashBangData.mutex);
@@ -1618,6 +1621,7 @@ ScmObj Scm_DefineReaderDirective(ScmObj symbol, ScmObj proc)
     return SCM_UNDEFINED;
 }
 
+// define-reader-directive
 static ScmObj read_shebang(ScmPort *port, ScmReadContext *ctx)
 {
     /* If '#!' appears in the beginning of the input port, and it is
@@ -1634,6 +1638,7 @@ static ScmObj read_shebang(ScmPort *port, ScmReadContext *ctx)
     */
     int c2 = Scm_GetcUnsafe(port);
     if (port->bytes == 3 && (c2 == '/' || c2 == ' ')) {
+        // "#! " or "#!/" のときは、こっちで、'\n' or EOFの文字列全て無視
         /* shebang */
         for (;;) {
             c2 = Scm_GetcUnsafe(port);
@@ -1654,6 +1659,7 @@ static ScmObj read_shebang(ScmPort *port, ScmReadContext *ctx)
         /* Reader directive may return zero or one value.  When it returns
            no values, we call Scm_VMSetResult to adjust the number of values.
          */
+        // ここでmacroが呼び出されるね
         ScmObj r = Scm_ApplyRec3(e, id, SCM_OBJ(port), SCM_OBJ(ctx));
         if (Scm_VMGetNumResults(Scm_VM()) == 1) return r;
         else { Scm_VMSetResult(SCM_UNDEFINED); return SCM_UNDEFINED; }
@@ -1664,6 +1670,7 @@ static ScmObj read_shebang(ScmPort *port, ScmReadContext *ctx)
  * #f, #t, #false, #true, and UVector literals
  */
 
+// 古いのでいらね
 /* Pre-0.9.4 reader.  #t and #f delimit themselves (except '1', '3' or '6'
    follows '#f'.)  I doubt any code breaks if we change that, but there
    may be a data files around that somehow relies on this behavior.  So
@@ -1715,6 +1722,7 @@ static ScmObj read_sharp_word_legacy(ScmPort *port, char ch, ScmReadContext *ctx
     return Scm_ReadUVector(port, tag, ctx);
 }
 
+// 新しいreader
 /* A 'new' version, friendly to R7RS */
 static ScmObj read_sharp_word_1(ScmPort *port, char ch, ScmReadContext *ctx)
 {
@@ -1732,6 +1740,7 @@ static ScmObj read_sharp_word_1(ScmPort *port, char ch, ScmReadContext *ctx)
             return SCM_FALSE;
         }
         break;
+        // #s"a" => #<oport (output string port) 0x8c8d80>
     case 's':
         if (strcmp(w, "s8") == 0
             || strcmp(w, "s16") == 0

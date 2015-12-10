@@ -72,14 +72,26 @@ static int keyword_disjoint_p = FALSE;
 /* internal constructor.  NAME must be an immutable string. */
 static ScmSymbol *make_sym(ScmClass *klass, ScmString *name, int interned)
 {
+  // こんな感じにobtableに格納されてるかな
+  // #define SCM_SYM_QUOTE SCM_OBJ(&Scm_BuiltinSymbols[0]) 
     if (interned) {
         /* fast path */
+      // symbolが一意であるためにロックするのかな
         SCM_INTERNAL_MUTEX_LOCK(obtable_mutex);
+        // ない場合に、falseのfallback
         ScmObj e = Scm_HashTableRef(obtable, SCM_OBJ(name), SCM_FALSE);
         SCM_INTERNAL_MUTEX_UNLOCK(obtable_mutex);
         if (!SCM_FALSEP(e)) return SCM_SYMBOL(e);
     }
 
+    // internedする、内部のobtableにsymbolを登録する
+
+    // インターンされていないシンボルは gensymかstring->uninterned-symbolで作ることができます。
+    //  インターンされていないシンボルは、良く伝統的なマクロで 変数衝突を避けるために使われます。
+    // (eq? '#:abc '#:abc ) => #f
+    // 毎回newするから名前が同じでも別のアドレスに存在
+
+    // 毎回symbolを作成するみたい(interned==0のとき)
     ScmSymbol *sym = SCM_NEW(ScmSymbol);
     SCM_SET_CLASS(sym, klass);
     sym->name = name;
