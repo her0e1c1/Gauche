@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_PREREQ([2.69])
+AC_PREREQ([2.68])
 AC_INIT([Gauche],[0.9.5_pre1],[shiro@acm.org],,[http://practical-scheme.net/gauche/])
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
@@ -27,25 +27,22 @@ Following encodings are currently recognized:
 'euc-jp' (EUC-JP code), 'utf-8' (UTF-8), 'sjis' (Shift-JIS),
 or 'none' (No multibyte support)]),
   [
-   case $enable_multibyte in
-     euc-jp|eucjp)      GAUCHE_CHAR_ENCODING=eucjp;;
-     utf-8|utf8|yes)    GAUCHE_CHAR_ENCODING=utf8;;
-     sjis|shift-jis)    GAUCHE_CHAR_ENCODING=sjis;;
-     no|none)           GAUCHE_CHAR_ENCODING=none;;
-     *) echo "unrecognized encoding option: '$enable_multibyte'; type ./configure --help for available options"
-        exit 1;;
-   esac
+   AS_CASE([$enable_multibyte],
+     [euc-jp|eucjp],   [GAUCHE_CHAR_ENCODING=eucjp],
+     [utf-8|utf8|yes], [GAUCHE_CHAR_ENCODING=utf8],
+     [sjis|shift-jis], [GAUCHE_CHAR_ENCODING=sjis],
+     [no|none],        [GAUCHE_CHAR_ENCODING=none],
+                       [AC_MSG_ERROR([unrecognized encoding option: '$enable_multibyte'; type ./configure --help for available options], 1)])
   ],
   [
     GAUCHE_CHAR_ENCODING=utf8
     ac_configure_args="$ac_configure_args '--enable-multibyte=utf-8'"
   ])
 
-case $GAUCHE_CHAR_ENCODING in
-  eucjp) AC_DEFINE(GAUCHE_CHAR_ENCODING_EUC_JP, [], [Define if Gauche handles multi-byte character as EUC-JP]);;
-  utf8)  AC_DEFINE(GAUCHE_CHAR_ENCODING_UTF_8,  [], [Define if Gauche handles multi-byte character as UTF-8]);;
-  sjis)  AC_DEFINE(GAUCHE_CHAR_ENCODING_SJIS,   [], [Define if Gauche handles multi-byte character as Shift JIS]);;
-esac
+AS_CASE([$GAUCHE_CHAR_ENCODING],
+  [eucjp], [AC_DEFINE(GAUCHE_CHAR_ENCODING_EUC_JP, [], [Define if Gauche handles multi-byte character as EUC-JP])],
+  [utf8],  [AC_DEFINE(GAUCHE_CHAR_ENCODING_UTF_8,  [], [Define if Gauche handles multi-byte character as UTF-8])],
+  [sjis],  [AC_DEFINE(GAUCHE_CHAR_ENCODING_SJIS,   [], [Define if Gauche handles multi-byte character as Shift JIS])])
 
 dnl ----------------------------------------------------------
 dnl  with-slib
@@ -57,28 +54,27 @@ AC_ARG_WITH(slib,
 installed under PATH.  If PATH is not specified, or this option is omitted,
 Gauche still tries to find your slib installation from some typical places.]),
   [
-    case $with_slib in
-      no)  search_slib=no;;
-      yes) search_slib=yes;;
-      *)   search_slib=no; SLIB_DIR=$with_slib;;
-    esac
+    AS_CASE([$with_slib],
+      [no],  [search_slib=no],
+      [yes], [search_slib=yes],
+	     [search_slib=no; SLIB_DIR=$with_slib])
   ], [ search_slib=yes ])
 
-if test $search_slib = "yes"; then
+AS_IF([test $search_slib = "yes"], [
   AC_MSG_CHECKING(slib)
   slib_found=no
   for dir in /usr/share/slib /usr/local/slib /usr/local/lib/slib /usr/local/share/slib /usr/src/slib /opt/share/slib; do
-    if test -f $dir/require.scm; then
+    AS_IF([test -f $dir/require.scm], [
        SLIB_DIR=$dir
        AC_MSG_RESULT($SLIB_DIR)
        slib_found=yes
        break
-    fi
+    ])
   done
-  if test $slib_found = "no"; then
+  AS_IF([test $slib_found = "no"], [
     AC_MSG_RESULT([not found, using fallback $SLIB_DIR])
-  fi
-fi
+  ])
+])
 AC_SUBST(SLIB_DIR)
 
 dnl ----------------------------------------------------------
@@ -131,6 +127,56 @@ AC_ARG_WITH(rpath,
       [no],  [try_rpath=no],
              [rpath=`echo $with_rpath | sed -e 's/^/-Wl,-rpath=/ ; s/:/,-rpath=/g'`])
   ])
+
+dnl ----------------------------------------------------------
+dnl   with-libatomic-ops[=yes|no|check]
+dnl
+dnl This code comes from "gc/configure.ac", and must be sync with that.
+dnl NB: Don't forget to update path name from "libatomic_ops" to
+dnl "gc/libatomic_ops".
+dnl
+# Do we want to use an external libatomic_ops?  By default use it if it's
+# found.
+AC_ARG_WITH([libatomic-ops],
+    [AS_HELP_STRING([--with-libatomic-ops[=yes|no|check]],
+                    [Use a external libatomic_ops? (default: check)])],
+    [], [with_libatomic_ops=check])
+
+# Check for an external libatomic_ops if the answer was yes or check.  If not
+# found, fail on yes, and convert check to no.
+# Note: "syntax error near unexpected token ATOMIC_OPS" reported by configure
+# means Autotools pkg.m4 file was not found during aclocal.m4 generation.
+missing_libatomic_ops=false
+AS_IF([test x"$with_libatomic_ops" != xno],
+  [ PKG_CHECK_MODULES([ATOMIC_OPS], [atomic_ops], [],
+                      [ missing_libatomic_ops=true ]) ])
+AS_IF([test x$missing_libatomic_ops = xtrue ],
+      [ AS_IF([test x"$with_libatomic_ops" != xcheck],
+              [ AC_MSG_ERROR([An external libatomic_ops was not found]) ])
+        with_libatomic_ops=no ])
+
+# If we have neither an external or an internal version, offer a useful hint
+# and exit.
+AS_IF([test x"$with_libatomic_ops" = xno -a ! -e "$srcdir/gc/libatomic_ops"],
+  [ AC_MSG_ERROR([libatomic_ops is required.  You can either install it on
+                  your system, or fetch and unpack a recent version into the
+                  source directory and link or rename it to libatomic_ops.]) ])
+
+# Finally, emit the definitions for bundled or external AO.
+AC_MSG_CHECKING([which libatomic_ops to use])
+AS_IF([test x"$with_libatomic_ops" != xno],
+  [ AC_MSG_RESULT([external]) ],
+  [ AC_MSG_RESULT([internal])
+    ATOMIC_OPS_CFLAGS='-I$(top_builddir)/gc/libatomic_ops/src -I$(top_srcdir)/gc/libatomic_ops/src'
+    ATOMIC_OPS_LIBS=""
+    AC_SUBST([ATOMIC_OPS_CFLAGS])
+    AC_CONFIG_SUBDIRS([libatomic_ops])
+  ])
+AM_CONDITIONAL([USE_INTERNAL_LIBATOMIC_OPS],
+    [test x$with_libatomic_ops = xno -a x"$THREADS" != xnone])
+AM_CONDITIONAL([NEED_ATOMIC_OPS_ASM],
+    [test x$with_libatomic_ops = xno -a x$need_atomic_ops_asm = xtrue])
+
 
 dnl ----------------------------------------------------------
 dnl   enable-thread=TYPE
@@ -225,7 +271,7 @@ case $GAUCHE_THREAD_TYPE in
       THREADLIBS="-lpthread"
       GAUCHE_THREAD_TYPE=pthreads
       ;;
-    *-*-mingw32*)
+    *-*-mingw*)
       if test $GAUCHE_THREAD_TYPE = "pthreads"; then
         AC_MSG_ERROR([pthread can't be used on Windows.  Use --enable-threads=win32 to enable threads])
       else
@@ -374,21 +420,20 @@ AC_CHECK_HEADERS(crt_externs.h)
 
 dnl ===========================================================
 dnl Checks processor type, for processor-specific stuff
-case $host in
-  i?86-apple-darwin*)
+AS_CASE([$host],
+  [i?86-apple-darwin*], [
     AC_CHECK_DEFINED(i386,
-      AC_DEFINE(SCM_TARGET_I386,1,[Define to use i386 optimizations])) ;;
-  i?86-*)
-    AC_DEFINE(SCM_TARGET_I386,1,[Define to use i386 optimizations]) ;;
-  x86_64-*)
-    AC_DEFINE(SCM_TARGET_X86_64,1,[Define to use x86_64 optimizations]) ;;
-  alpha*)
-    CFLAGS="$CFLAGS -mieee" ;;
-  arm*)
-    # ARM processor may use a special mixed endian for doubles.  It can
-    # be switched by processor configuration.  So we check it at runtime.
-    AC_DEFINE(DOUBLE_ARMENDIAN,1,[Define to use mixed endian ARM processor]) ;;
-esac
+      AC_DEFINE(SCM_TARGET_I386,1,[Define to use i386 optimizations]))],
+  [i?86-*], [
+    AC_DEFINE(SCM_TARGET_I386,1,[Define to use i386 optimizations])],
+  [x86_64-*], [
+    AC_DEFINE(SCM_TARGET_X86_64,1,[Define to use x86_64 optimizations])],
+  [alpha*], [
+    CFLAGS="$CFLAGS -mieee"],
+  [arm*], [
+    dnl ARM processor may use a special mixed endian for doubles.  It can
+    dnl be switched by processor configuration.  So we check it at runtime.
+    AC_DEFINE(DOUBLE_ARMENDIAN,1,[Define to use mixed endian ARM processor])])
 
 dnl ===========================================================
 dnl Checks for typedefs, structures, and compiler characteristics.
@@ -465,7 +510,7 @@ AC_SUBST(ALTERNATIVE_GOSH)
 
 AC_FUNC_ALLOCA
 AC_CHECK_FUNCS(isnan isinf trunc rint tgamma lgamma)
-AC_CHECK_FUNCS(symlink readlink lchown mkstemp realpath nanosleep usleep)
+AC_CHECK_FUNCS(symlink readlink lchown realpath nanosleep usleep)
 AC_CHECK_FUNCS(random srandom lrand48 srand48)
 AC_CHECK_FUNCS(putenv setenv unsetenv clearenv getpgid setgroups)
 AC_CHECK_FUNCS(gethostname sethostname getdomainname setdomainname)
@@ -473,6 +518,19 @@ AC_CHECK_FUNCS(gettimeofday getloadavg clock_gettime clock_getres)
 AC_CHECK_FUNCS(syslog setlogmask)
 AC_CHECK_FUNCS(sigwait)
 AC_CHECK_FUNCS(fpsetprec)
+
+dnl KLUDGE: As of Dec 2015, Mingw-w64  provides mkstemp() but it opens
+dnl the file with _O_TEMPORARY flag, so the file gets automatically deleted
+dnl when its opened file descriptors are all closed.  It is incompatible
+dnl for typical behavior and we avoid using it.  This kludge should be
+dnl removed once mingw-w64 fixes mkstemp.  (We include mkdtemp here as
+dnl well, just because it's nice to see them togeter.  Mingw-w64 doesn't
+dnl have mkdtemp yet, so it doesn't matter wheter we include it or not.)
+case "$host" in
+  *mingw*) ;;
+  *)
+   AC_CHECK_FUNCS(mkdtemp mkstemp);;
+esac
 
 dnl Check for select().  HP-UX and MinGW doesn't like the way configure tests
 dnl select() existence and we know they have one, so we skip the test on them.
@@ -667,7 +725,7 @@ case $host in
     ;;
   *mingw*)
     # Kludge: We add -static-libgcc flag when creating dll, in order to avoid
-    # inroducing dependency to libgcc_s_dw2-1.dll.
+    # introducing dependency to libgcc_s_dw2-1.dll.
     SHLIB_SO_CFLAGS=""
     SHLIB_SO_LDFLAGS='-Wl,--export-all-symbols -Wl,--enable-auto-import -Wl,--enable-runtime-pseudo-reloc -static-libgcc -shared -o'
     SHLIB_SO_SUFFIX="dll"

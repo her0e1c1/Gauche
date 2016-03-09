@@ -84,6 +84,18 @@ struct sockaddr_un {
 };
 int inet_pton(int af, const char *src, void *dst);
 const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
+#define MSG_WAITALL   0x8
+#ifdef HAVE_IPV6
+#define IPV6_V6ONLY   27
+#define AI_ALL        0x00000100
+#define AI_ADDRCONFIG 0x00000400
+#define AI_V4MAPPED   0x00000800
+#if !defined(__MINGW64_VERSION_MAJOR)
+void WSAAPI freeaddrinfo(struct addrinfo*);
+int  WSAAPI getaddrinfo(const char*, const char*, const struct addrinfo*, struct addrinfo**);
+int  WSAAPI getnameinfo(const struct sockaddr*, socklen_t, char*, DWORD, char*, DWORD, int);
+#endif /*!defined(__MINGW64_VERSION_MAJOR)*/
+#endif /* HAVE_IPV6 */
 #endif /*GAUCHE_WINDOWS*/
 
 /*==================================================================
@@ -204,11 +216,9 @@ typedef struct ScmSocketRec {
     ScmPort *outPort;
     ScmString *name;
 #if defined(GAUCHE_WINDOWS)
-    /* Save them so that we can close them when the socket is closed.
-       We can't let these closed by inPort/outPort cleanup routine, since
-       even after one port is closed, another port may be still in use. */
-    int infd;
-    int outfd;
+    /* Save a C run-time file descriptor so that we can close it
+       when the socket is closed. */
+    int cfd;
 #endif /*GAUCHE_WINDOWS*/
 } ScmSocket;
 

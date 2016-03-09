@@ -10,6 +10,10 @@
 #ifndef GAUCHE_WIN_COMPAT_H
 #define GAUCHE_WIN_COMPAT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 /* A common symbol, used throughout the Gauche source */
 #define GAUCHE_WINDOWS 1
 
@@ -38,6 +42,11 @@ typedef unsigned int u_int;
 typedef unsigned long u_long;
 #define _BSDTYPES_DEFINED
 #endif /* _BSDTYPES_DEFINED */
+
+/* Mingw-w64 only defines sigset_t when _POSIX is defined. */
+#if defined(__MINGW64_VERSION_MAJOR) && !defined(_POSIX)
+typedef _sigset_t sigset_t;
+#endif  /*defined(__MINGW64_VERSION_MAJOR) && !defined(_POSIX)*/
 
 
 /*======================================================================
@@ -175,6 +184,7 @@ extern __declspec(dllimport) const char *Scm_WCS2MBS(const WCHAR *s);
 #define rename(o, n)       _wrename(Scm_MBS2WCS(o), Scm_MBS2WCS(n))
 #define rmdir(dir)         _wrmdir(Scm_MBS2WCS(dir))
 #define unlink(path)       _wunlink(Scm_MBS2WCS(path))
+#define system(path)       _wsystem(Scm_MBS2WCS(path))
 #endif /*UNICODE*/
 
 /*===================================================================
@@ -191,9 +201,12 @@ int fork(void);
 int kill(pid_t pid, int signal);
 int pipe(int fd[]);
 char *ttyname(int desc);
+unsigned int alarm(unsigned int seconds);
+
+#ifndef __MINGW64_VERSION_MAJOR
 int truncate(const char *path, off_t len);
 int ftruncate(int fd, off_t len);
-unsigned int alarm(unsigned int seconds);
+#endif
 
 #define WNOHANG   (1L<<0)
 #define WUNTRACED (1L<<1)
@@ -247,5 +260,9 @@ struct flock {
 #define F_RDLCK  0
 #define F_WRLCK  1
 #define F_UNLCK  2
+
+#ifdef __cplusplus
+} /* end extern "C" */
+#endif /* __cplusplus */
 
 #endif /* GAUCHE_WIN_COMPAT_H */

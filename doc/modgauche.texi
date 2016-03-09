@@ -5141,7 +5141,7 @@ generate, and use @var{g} to update the seed value.
 
 @subsubheading SRFI-121 compatible procedures
 
-@defun make-generator item @dots{}
+@defun generator item @dots{}
 [SRFI-121]
 @c EN
 Returns a generator that generates @var{item} @dots{}.
@@ -5189,19 +5189,6 @@ Srfi-121 doesn't have corresponding procedure for @code{reverse-bits->generator}
 @code{(make-bits-generator n)}は@code{(bits->generator n)}と同じです。
 省略可能なstart/end引数は取りません。
 @code{reverse-bits->generator}に相当する手続きはsrfi-121にはありません。
-@c COMMON
-@end defun
-
-@defun make-port-generator input-port :optional reader
-[SRFI-121]
-@c EN
-This is a generalized version of @code{port->line-generator} etc.
-The result generator calls @var{reader} (defaulted to @code{read-line})
-on @var{input-port} every time an item is requested.
-@c JP
-これは@code{port->line-generator}等を一般化した手続きです。
-返されるジェネレータは、値を要求される度に@var{input-port}を引数にして@var{reader}を
-呼び出しその結果を返します。@var{reader}のデフォルトは@code{read-line}です。
 @c COMMON
 @end defun
 
@@ -6123,17 +6110,6 @@ but sometimes this macro makes the imperative code more readable:
 [SRFI-121]
 Like @code{any} and @code{every} (@pxref{Walking over lists}), but
 works on a generator.
-@end defun
-
-@defun generator-length gen
-[SRFI-121]
-@c EN
-Returns the number of items in a generator @var{gen}.
-As a side effect, @var{gen} is exhausted.
-@c JP
-@var{gen}が生成する要素の個数を返します。副作用として
-@var{gen}は使い尽くされます。
-@c COMMON
 @end defun
 
 @defun generator-count pred gen
@@ -20090,6 +20066,55 @@ and disassembles it to bytes; the disassembled character
 may not be included in the remaining input list.
 @end defun
 
+@c EN
+@subsubheading Generator ports
+@c JP
+@subsubheading ジェネレータポート
+@c COMMON
+
+@c EN
+The following procedures allow you to use character generators
+or byte generators as a source of an input port.  These are (a kind of)
+opposite of @code{port->char-generator} family
+(@pxref{Generator constructors}).
+@c JP
+
+@c COMMON
+
+@defun open-input-char-generator cgen
+@defunx open-input-byte-generator bgen
+Creates and returns an input port that uses
+the given generators as the source.  The @var{cgen} argument
+must be a generator that yields characters.  The @var{bgen} argument
+must be a generator that yields bytes (exact integers between 0 and
+255, inclusive).
+An error will be raised if the given generator yields
+incorrect type of objects.
+
+@example
+(read (open-input-char-generator (string->generator "foo")))
+ @result{} foo
+@end example
+
+Since the generators are objects relying on side effects,
+you shouldn't use @var{cgen} or @var{bgen} after you pass them
+to those procedures; if you use them afterwards, the result
+is undefined.
+@end defun
+
+@defun get-remaining-input-generator port
+If @var{port} is the one created by @code{open-input-char-generator} 
+or @code{open-input-byte-generator}, returns a generator that
+yields the characters or bytes that haven't been read yet.
+If the port already read everything, an empty generator
+is returned.
+
+Once you take the remaining input generator, you should no longer
+read from the input generator ports; they share internal states and
+mixing them will likely to cause unexpected behaviors.
+If side-effects safe behavior is desired, use lazy sequence and
+input list ports.
+@end defun
 
 @c EN
 @subsubheading Note on finalization

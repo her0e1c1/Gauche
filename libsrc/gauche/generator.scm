@@ -48,7 +48,7 @@
           generator->vector generator->vector!
           generator->string
           generator-any generator-every generator-unfold
-          generator-length generator-count
+          generator-count
 
           null-generator gcons* gappend gflatten
           gconcatenate gmerge
@@ -59,9 +59,9 @@
           glet* glet1 do-generator
 
           ;; srfi-121 compatibility
-          make-generator make-iota-generator make-range-generator
+          generator make-iota-generator make-range-generator
           make-coroutine-generator bytevector->generator
-          make-bits-generator make-port-generator
+          make-bits-generator
           make-for-each-generator make-unfold-generator gcombine
           ))
 (select-module gauche.generator)
@@ -639,11 +639,10 @@
 
 (define (generator->vector! vec at gen)
   (let1 len (vector-length vec)
-    (when (< at len)
-      (do ([k at (+ k 1)]
-           [v (gen) (gen)])
-          [(or (eof-object? v) (= k len)) (- k at)]
-        (vector-set! vec k v)))))
+    (let loop ([k at])
+      (let1 v (if (>= k len) (eof-object) (gen))
+        (cond [(eof-object? v) (- k at)]
+              [else (vector-set! vec k v) (loop (+ k 1))])))))
 
 (define (generator->string gen :optional (n #f))
   (with-output-to-string
@@ -675,22 +674,18 @@
         (loop (gen) r)
         #f))))
 
-(define (generator-length gen)
-  (rlet1 n 0
-    (do-generator [_ gen] (inc! n))))
-
 (define (generator-count pred gen)
   (rlet1 n 0
     (do-generator [v gen] (when (pred v) (inc! n)))))
   
 (define (generator-unfold gen unfold . args)
-  (apply unfold eof-object? identity (^_ (gen)) args))
+  (apply unfold eof-object? identity (^_ (gen)) (gen) args))
 
 ;; srfi-121 compatibility aliases
 ;; NB: We're not sure if we should put them here, or split them to
-;; srfi-121 module.  They're
+;; srfi-121 module.
 
-(define (make-generator . args) (list->generator args))
+(define (generator . args) (list->generator args))
 (define (make-iota-generator count . args) (apply giota count args))
 (define (make-range-generator start . args) (apply grange start args))
 (define (make-coroutine-generator proc) (generate proc))
@@ -698,7 +693,6 @@
   (unless (u8vector? bv) (error "u8vector required, but got:" bv))
   (uvector->generator bv start end))
 (define (make-bits-generator n) (bits->generator n))
-(define (make-port-generator p :optional (reader read-line)) (cut (reader p)))
 (define (make-for-each-generator for-each coll)
   (generate (^[yield] (for-each yield coll))))
 (define (make-unfold-generator p f g seed) (gunfold p f g seed))

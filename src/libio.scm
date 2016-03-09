@@ -248,7 +248,7 @@
                                   (name #f))
   (let* ([bufmode::int (Scm_BufferingMode buffering SCM_PORT_INPUT
                                           SCM_PORT_BUFFER_FULL)])
-    (when (< fd 0) (Scm_Error "bad file descriptor: %d" fd))
+    (when (< fd 0) (Scm_Error "bad file descriptor: %ld" fd))
     (return (Scm_MakePortWithFd name SCM_PORT_INPUT fd bufmode ownerP))))
 
 (define-cproc open-output-fd-port (fd::<fixnum>
@@ -526,7 +526,7 @@
 (define-cproc read-block (bytes::<fixnum>
                           :optional (port::<input-port> (current-input-port)))
   (when (< bytes 0)
-    (Scm_Error "bytes must be non-negative integer: %d" bytes))
+    (Scm_Error "bytes must be non-negative integer: %ld" bytes))
   (if (== bytes 0)
     (return (Scm_MakeString "" 0 0 0))
     (let* ([buf::char* (SCM_NEW_ATOMIC2 (C: char*) (+ bytes 1))]
@@ -695,7 +695,7 @@
                           :optional (port::<output-port> (current-output-port)))
   ::<int>
   (when (or (< byte 0) (> byte 255))
-    (Scm_Error "argument out of range: %d" byte))
+    (Scm_Error "argument out of range: %ld" byte))
   (SCM_PUTB byte port)
   (return 1))
 
@@ -957,10 +957,14 @@
     (values)))
 
 (define-reader-directive 'gauche-legacy
-  (^[sym port ctx] (reader-lexical-mode 'legacy) (values)))
+  (^[sym port ctx]
+    (port-attribute-set! port 'reader-lexical-mode 'legacy)
+    (values)))
 
 (define-reader-directive 'r7rs
-  (^[sym port ctx] (reader-lexical-mode 'strict-r7) (values)))
+  (^[sym port ctx]
+    (port-attribute-set! port 'reader-lexical-mode 'strict-r7)
+    (values)))
 
 ;; HIGHLY EXPERIMENTAL
 (define-reader-directive 'c-expr

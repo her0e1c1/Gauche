@@ -1,5 +1,5 @@
 ;;;
-;;; data.ftree-map - functional tree map
+;;; data.imap - immutable tree map
 ;;;
 ;;;   Copyright (c) 2015  Shiro Kawai  <shiro@acm.org>
 ;;;
@@ -34,41 +34,43 @@
 ;; This implements functional red-black tree
 ;; as described in Chris Okasaki's Purely Functional Data Structures.
 
-(define-module data.ftree-map
+(define-module data.imap
   (use gauche.sequence)
   (use gauche.dictionary)
   (use gauche.record)
   (use data.queue)
   (use util.match)
   (use srfi-114)
-  (export make-ftree-map ftree-map?
-          ftree-map-empty?
-          ftree-map-exists? ftree-map-get ftree-map-put ftree-map-delete
-          ftree-map-min ftree-map-max)
+  (export <imap> <imap-meta>
+          make-imap alist->imap tree-map->imap
+          imap? imap-empty?
+          imap-exists? imap-get imap-put
+          imap-delete
+          imap-min imap-max)
   )
-(select-module data.ftree-map)
+(select-module data.imap)
 
 ;;
 ;; Internal implementation
 ;;
 
-(define-record-type T #t #t color left elem right)
+(define-record-type (T (pseudo-rtd <vector>)) #t #t color left elem right)
 ;; NB: We just use #f as E node.
 (define (E? x) (not x))
 
 (define balance
   (match-lambda*
-    [(or ('B ($ T 'R ($ T 'R a x b) y c) z d)
-         ('B ($ T 'R a x ($ T 'R b y c)) z d)
-         ('B a x ($ T 'R ($ T 'R b y c) z d))
-         ('B a x ($ T 'R b y ($ T 'R c z d))))
+    [(or ('B #('R #('R a x b) y c) z d)
+         ('B #('R a x #('R b y c)) z d)
+         ('B a x #('R #('R b y c) z d))
+         ('B a x #('R b y #('R c z d))))
      (make-T 'R (make-T 'B a x b) y (make-T 'B c z d))]
     [(color a x b)
      (make-T color a x b)]))
 
 (define (get key tree cmpr)
   (and (T? tree)
-       (match-let1 ($ T _ a p b) tree
+       (match-let1 #(_ a p b) tree
          (if3 (comparator-compare cmpr key (car p))
               (get key a cmpr)
               p
@@ -78,25 +80,32 @@
   (define (ins tree)
     (if (E? tree)
       (make-T 'R #f (cons key val) #f)
-      (match-let1 ($ T color a p b) tree
+      (match-let1 #(color a p b) tree
         (if3 (comparator-compare cmpr key (car p))
              (balance color (ins a) p b)
              (make-T color a (cons key val) b)
              (balance color a p (ins b))))))
-  (match-let1 ($ T _ a p b) (ins tree)
+  (match-let1 #(_ a p b) (ins tree)
     (make-T 'B a p b)))
+
+(define (populate tree alist cmpr)
+  ((rec (f tree alist)
+     (if (null? alist)
+       tree
+       (f (insert (caar alist) (cdar alist) tree cmpr) (cdr alist))))
+   tree alist))
 
 (define (delete key tree cmpr)
   (define (del-min tree)
     (match tree
-      [($ T color #f p #f) (values p #f)]
-      [($ T color #f p b)  (values p b)]
-      [($ T color a p b)   (receive (min-p a.) (del-min tree)
-                             (values min-p (balance color a. p b)))]))
+      [#(color #f p #f) (values p #f)]
+      [#(color #f p b)  (values p b)]
+      [#(color a p b)   (receive (min-p a.) (del-min a)
+                          (values min-p (balance color a. p b)))]))
   (define (del tree)
     (if (E? tree)
       tree
-      (match-let1 ($ T color a p b) tree
+      (match-let1 #(color a p b) tree
         (if3 (comparator-compare cmpr key (car p))
              (balance color (del a) p b)
              (if a
@@ -108,103 +117,125 @@
              (balance color a p (del b))))))
   (match (del tree)
     [#f  #f] ;empty
-    [($ T _ a p b) (make-T 'B a p b)]))
+    [#(_ a p b) (make-T 'B a p b)]))
+
+;; aux fn
+(define (%key-proc->comparator key=? key<?)
+  (make-comparator #t key=?
+                   (^[a b] (cond [(key=? a b) 0]
+                                 [(key<? a b) -1]
+                                 [else 1]))
+                   #f))
 
 ;;
 ;; External interface
 ;;
-(define-class <ftree-map> (<ordered-dictionary>)
+(define-class <imap-meta> (<class>) ())
+
+(define-class <imap> (<ordered-dictionary>)
   ((comparator :init-keyword :comparator)
-   (tree :init-keyword :tree :init-form #f)))
+   (tree :init-keyword :tree :init-form #f))
+  :metaclass <imap-meta>)
 
 ;; API
-(define (ftree-map? x) (is-a? x <ftree-map>))
+(define (imap? x) (is-a? x <imap>))
 
 ;; API
-(define make-ftree-map
+(define make-imap
   (case-lambda
-    [() (make-ftree-map default-comparator)]
+    [() (make-imap default-comparator)]
     [(cmpr)
      (unless (comparator? cmpr)
        (error "comparator required, but got:" cmpr))
-     (make <ftree-map> :comparator cmpr)]
-    [(key=? key<?)
-     (make-ftree-map (make-comparator #t key=?
-                                      (^[a b]
-                                        (cond [(key=? a b) 0]
-                                              [(key<? a b) -1]
-                                              [else 1]))
-                                      #f))]))
+     (make <imap> :comparator cmpr)]
+    [(key=? key<?) (make-imap (%key-proc->comparator key=? key<?))])) 
 
 ;; API
-(define (ftree-map-empty? ftree) (E? (~ ftree'tree)))
+(define alist->imap
+  (case-lambda
+    [(alist) (alist->imap alist default-comparator)]
+    [(alist cmpr)
+     (unless (comparator? cmpr)
+       (error "comparator required, but got:" cmpr))
+     (make <imap>
+       :comparator cmpr :tree (populate #f alist cmpr))]
+    [(alist key=? key<?)
+     (alist->imap alist (%key-proc->comparator key=? key<?))]))
 
 ;; API
-(define (ftree-map-exists? ftree key)
-  (boolean (get key (~ ftree'tree) (~ ftree'comparator))))
+(define (tree-map->imap tree-map)
+  (alist->imap (tree-map->alist tree-map)
+                        (tree-map-comparator tree-map)))
 
 ;; API
-(define (ftree-map-get ftree key :optional default)
-  (if-let1 p (get key (~ ftree'tree) (~ ftree'comparator))
+(define (imap-empty? immap) (E? (~ immap'tree)))
+
+;; API
+(define (imap-exists? immap key)
+  (boolean (get key (~ immap'tree) (~ immap'comparator))))
+
+;; API
+(define (imap-get immap key :optional default)
+  (if-let1 p (get key (~ immap'tree) (~ immap'comparator))
     (cdr p)
     (if (undefined? default)
-      (errorf "No such key in a ftree-map ~s: ~s" ftree key)
+      (errorf "No such key in a imap ~s: ~s" immap key)
       default)))
 
 ;; API
-(define (ftree-map-put ftree key val)
-  (make <ftree-map>
-    :comparator (~ ftree'comparator)
-    :tree (insert key val (~ ftree'tree) (~ ftree'comparator))))
+(define (imap-put immap key val)
+  (make <imap>
+    :comparator (~ immap'comparator)
+    :tree (insert key val (~ immap'tree) (~ immap'comparator))))
 
 ;; API
-(define (ftree-map-delete ftree key)
-  (make <ftree-map>
-    :comparator (~ ftree'comparator)
-    :tree (delete key (~ ftree'tree) (~ ftree'comparator))))
+(define (imap-delete immap key)
+  (make <imap>
+    :comparator (~ immap'comparator)
+    :tree (delete key (~ immap'tree) (~ immap'comparator))))
 
 ;; API
-(define (ftree-map-min ftree)
+(define (imap-min immap)
   (define (descend tree)
-    (match-let1 ($ T _ a p b) tree
+    (match-let1 #(_ a p b) tree
       (if (E? a) p (descend a))))
-  (let1 t (~ ftree'tree)
+  (let1 t (~ immap'tree)
     (and (not (E? t)) (descend t))))
 
 ;; API
-(define (ftree-map-max ftree)
+(define (imap-max immap)
   (define (descend tree)
-    (match-let1 ($ T _ a p b) tree
+    (match-let1 #(_ a p b) tree
       (if (E? b) p (descend b))))
-  (let1 t (~ ftree'tree)
+  (let1 t (~ immap'tree)
     (and (not (E? t)) (descend t))))
 
 ;; Fundamental iterators
-(define (%ftree-map-fold ftree proc seed)
+(define (%imap-fold immap proc seed)
   (define (rec tree seed)
     (if (E? tree)
       seed
-      (match-let1 ($ T _ a p b) tree
+      (match-let1 #(_ a p b) tree
         (rec b (proc p (rec a seed))))))
-  (rec (~ ftree'tree) seed))
+  (rec (~ immap'tree) seed))
 
-(define (%ftree-map-fold-right ftree proc seed)
+(define (%imap-fold-right immap proc seed)
   (define (rec tree seed)
     (if (E? tree)
       seed
-      (match-let1 ($ T _ a p b) tree
+      (match-let1 #(_ a p b) tree
         (rec a (proc p (rec b seed))))))
-  (rec (~ ftree'tree) seed))
+  (rec (~ immap'tree) seed))
 
 ;; Collection framework
-(define-method call-with-iterator ((coll <ftree-map>) proc :allow-other-keys)
-  (if (ftree-map-empty? coll)
+(define-method call-with-iterator ((coll <imap>) proc :allow-other-keys)
+  (if (imap-empty? coll)
     (proc (^[] #t) (^[] #t))
     (let1 q (make-queue)  ; only contains T
       (enqueue! q (~ coll'tree))
       (proc (^[] (queue-empty? q))
             (rec (next)
-              (match-let1 ($ T c a p b) (dequeue! q)
+              (match-let1 #(c a p b) (dequeue! q)
                 (if (E? a)
                   (if (E? b)
                     p
@@ -213,21 +244,32 @@
                          (queue-push! q a)
                          (next)))))))))
 
+(define-method call-with-builder ((class <imap-meta>) proc
+                                  :key (comparator default-comparator)
+                                  :allow-other-keys)
+  (define alist '())
+  (proc (^p (push! alist p))
+        (^[] (alist->imap alist comparator))))
+
+;; A couple of conversion methods for the efficiency
+(define-method coerce-to ((c <imap-meta>) (src <list>))
+  (alist->imap src))
+(define-method coerce-to ((c <imap-meta>) (src <tree-map>))
+  (tree-map->imap src))
+
 ;; Dictionary interface
 ;; As a dictionary, it behaves as immutable dictionary.
-(define-method dict-get ((ftree <ftree-map>) key :optional default)
-  (ftree-map-get ftree key default))
+(define-method dict-get ((immap <imap>) key :optional default)
+  (imap-get immap key default))
 
-(define-method dict-put! ((ftree <ftree-map>) key value)
-  (errorf "ftree-map is immutable:" ftree))
+(define-method dict-put! ((immap <imap>) key value)
+  (errorf "imap is immutable:" immap))
 
-(define-method dict-comparator ((ftree <ftree-map>))
-  (~ ftree'comparator))
+(define-method dict-comparator ((immap <imap>))
+  (~ immap'comparator))
 
-(define-method dict-fold ((ftree <ftree-map>) proc seed)
-  (%ftree-map-fold ftree (^[p s] (proc (car p) (cdr p) s)) seed))
+(define-method dict-fold ((immap <imap>) proc seed)
+  (%imap-fold immap (^[p s] (proc (car p) (cdr p) s)) seed))
 
-(define-method dict-fold-right ((ftree <ftree-map>) proc seed)
-  (%ftree-map-fold-right ftree (^[p s] (proc (car p) (cdr p) s)) seed))
-
-
+(define-method dict-fold-right ((immap <imap>) proc seed)
+  (%imap-fold-right immap (^[p s] (proc (car p) (cdr p) s)) seed))

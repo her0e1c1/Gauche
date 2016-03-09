@@ -14,6 +14,7 @@
 * Cache::                       data.cache
 * Heap::                        data.heap
 * Queue::                       data.queue
+* Immutable map::               data.imap
 * Random data generators::      data.random
 * Ring buffer::                 data.ring-buffer
 * Sparse data containers::      data.sparse
@@ -2206,7 +2207,7 @@ before comparison.
 @end defun
 
 @c ----------------------------------------------------------------------
-@node Queue, Random data generators, Heap, Library modules - Utilities
+@node Queue, Immutable map, Heap, Library modules - Utilities
 @section @code{data.queue} - Queue
 @c NODE キュー, @code{data.queue} - キュー
 
@@ -2228,7 +2229,19 @@ of items in the mtqueue reaches a specified limit.
 Using these procedures allows the program to use an mtqueue
 as a @emph{channel}.
 
-The simple queue API is a superset of SLIB's queue implementation.
+The simple queue API is a superset of SLIB's queue implementation,
+which supports not only @code{enqueue!} (add item to the end of the sequence)
+and @code{dequeue!} (take item from the front of the sequence), but also
+@code{queue-push!} (add item to the front of the sequence), so that
+it can be used as a stack as well.
+
+If you also want to take item from the end of the sequence in O(1),
+you need a deque (double-ended queue).
+@xref{Ring buffer}, which works as an efficient (both speed and space)
+dequeue on top of vectors.
+
+See also SRFI-117 (@ref{Queues based on lists}), which defines a
+portable API for list-based queue.
 @c JP
 キュー(FIFO)機能を提供します。
 極めて軽量ですがスレッドセーフでないシンプルなキューと、
@@ -2243,6 +2256,17 @@ The simple queue API is a superset of SLIB's queue implementation.
 いわゆる「チャネル」としてキューを使うことができます。
 
 シンプルキューのAPIはSLIBのキュー実装の上位互換になっています。
+要素を並びの末尾に追加する@code{enqueue!}と、要素を並びの先頭から取り除く
+@code{dequeue!}だけでなく、要素を並びの先頭に追加する@code{queue-push!}も
+提供されているので、スタックとしても使えます。
+
+要素を並びの末尾からO(1)で取り除くAPIも欲しい場合は、
+deque (double-ended queue)が必要です。@code{data.ring-buffer}モジュール
+は、ベクタの上に実装された(空間的にも時間的にも)効率の良いdequeを提供しています
+(@ref{Ring buffer}参照)。
+
+また、SRFI-117はポータブルなリストベースのキューのAPIを提供しています
+(@ref{Queues based on lists})。
 @c COMMON
 @end deftp
 
@@ -2708,10 +2732,142 @@ without hitting timeout, they return @code{#t}.
 @c COMMON
 @end defun
 
+@c ----------------------------------------------------------------------
+@node Immutable map, Random data generators, Queue, Library modules - Utilities
+@section @code{data.imap} - Immutable map
+@c NODE 変更不可なマップ, @code{data.imap} - 変更不可なマップ
+
+@deftp {Module} data.imap
+@mdindex data.imap
+This module provides a immutable data structure with O(log n)
+access and update operations.  The current implementation is
+based on the functional red-black tree.
+@end deftp
+
+Although lists and alists are useful for stack-like immutable
+operations, where you can add and remove items to the head of
+existing data without modifying them, they require O(n) access time
+and sometimes you need better one.  The @code{<imap>} object
+provides O(log n) access, in exchange of O(log n) insertion and
+deletion.
+
+@deftp {Class} <imap-meta>
+Metaclass of @code{<imap>}.
+@end deftp
+
+@deftp {Class} <imap>
+Immutable map class.  An instance of @code{<imap-meta>}.
+
+Inherits @code{<ordered-dictionary>}, conforms dictionary protocol
+(except mutating operators).  As a sequence, you can access key-value
+pairs in increasing order of keys.
+@end deftp
+
+@defun make-imap
+@defunx make-imap comparator
+@defunx make-imap key=? key<?
+Creates a new empty immutable map.  Without arguments,
+@code{default-comparator} is used to compare keys.  To give a
+specific comparator, use the second form; the @var{comparator}
+argument should have comparison procedure.
+For the details of comparators, @pxref{Comparators}.
+The third form creates a key comparator from a equality
+predicate @var{key=?} and less-than predicate @code{key<=?},
+both must accept two keys.  This interface is consistent with
+@code{tree-map} (@pxref{Treemaps}).
+@end defun
+
+@defun alist->imap alist
+@defunx alist->imap alist comparator
+@defunx alist->imap alist key=? key<?
+Creates a new empty immutable map, populates it with
+key-value association list @var{alist}, and returns it.
+This may be a bit more efficient than creating an empty map with
+@code{make-imap} and populates it with @code{imap-put}
+one by one.
+
+The @var{comparator} argument specifies how to compare the keys.
+It must have comparison procedure.  If omitted, @code{default-comparator}
+is used.  @xref{Comparators}, for the details.
+
+The third form creates a key comparator from a equality
+predicate @var{key=?} and less-than predicate @code{key<=?},
+both must accept two keys.
+
+@example
+(define m (alist->imap '((a . 1) (b . 2))))
+
+(imap-get m 'a) @result{} 1
+(imap-get m 'b) @result{} 2
+@end example
+@end defun
+
+@defun tree-map->imap tree-map
+Returns a new immutable map with the same content (and the same comparator)
+as @var{tree-map}.
+@end defun
+
+@defun imap? obj
+Returns @code{#t} if @var{obj} is an immutable map,
+@code{#f} otherwise.
+@end defun
+
+@defun imap-empty? immap
+Returns @code{#t} if an immutable map @var{immap} is empty,
+@code{#f} otherwise.
+@end defun
+
+@defun imap-exists? immap key
+Returns @code{#t} if @var{key} exists in an immutable map @var{immap}.
+@end defun
+
+@defun imap-get immap key :optional default
+Returns the value associated with @var{key} in an immutable map @var{immap}.
+If @var{immap} doesn't have @var{key}, @var{default} is returned
+when provided, otherwise an error is signalled.
+@end defun
+
+@defun imap-put immap key val
+Returns a new immutable map where association of @var{key} to @var{val}
+is added to (or replaced in) an immutable map @var{immap}.
+This operation is O(log n).
+
+@example
+(define m1 (alist->imap '((a . 1) (b . 2))))
+
+(define m2 (imap-put m1 'a 3))
+
+(imap-get m2 'a)  @result{} 3
+(imap-get m1 'a)  @result{} 1  ; not affected
+@end example
+@end defun
+
+@defun imap-delete immap key
+Returns a new immutable map where @var{key} is removed from
+@var{immap}.   If @var{immap} doesn't have @var{key}, returned
+map has the same content as @var{immap}.
+
+@example
+(define m1 (alist->imap '((a . 1) (b . 2))))
+
+(define m2 (imap-delete m1 'a))
+
+(imap-get m2 'a #f)  @result{} #f
+(imap-get m1 'a)     @result{} 1  ; not affected
+@end example
+@end defun
+
+@defun imap-min immap
+@defunx imap-max immap
+Returns a pair of key and value with the minimum or maximum
+key in @var{immap}, respectively.  If @var{immap} is empty,
+@code{#f} is returned.
+@end defun
+
+
 
 @c ----------------------------------------------------------------------
-
-@node Random data generators, Ring buffer, Queue, Library modules - Utilities
+@node Random data generators, Ring buffer, Immutable map, Library modules - Utilities
 @section @code{data.random} - Random data generators
 @c NODE ランダムデータの生成, @code{data.random} - ランダムデータの生成
 
@@ -3363,12 +3519,14 @@ or @code{overwrite}.
 
 If it is a procedure, it will be called with a ring buffer and
 a backing storage (vector or uvector) when it is filled.  The procedure
-must either (1) allocates and returns a larger vector/uvector of the same
-type of the passed backing storage, (2) returns a symbol @code{error},
-or (3) returns a symbol @code{overwrite}.  If it returns a vector/uvector,
-it will be used as the new backing storage.  If it returns @code{error},
+must either (1) allocate and return a larger vector/uvector of the same
+type of the passed backing storage, (2) return a symbol @code{error},
+or (3) return a symbol @code{overwrite}.  If it returns a vector/uvector,
+it will be used as the new backing storage.  The returned vector doesn't need
+to be initialized; the ring buffer routine takes care of it.
+If it returns @code{error},
 an error (``buffer is full'') is thrown.  If it returns @code{overwrite},
-the new element overwrites the existiing element (as if one element
+the new element overwrites the existing element (as if one element
 from the other end is popped and discarded.)
 
 Passing a symbol @code{error} or @code{overwrite} to @var{overflow-handler}
@@ -19350,12 +19508,13 @@ We intentionally avoid inserting newlines after the closing
 tag, since @emph{it depends on the surrounding context whether
 the newline is significant or not}.  We may be able to insert newlines
 after the elements directly below a @code{<head>} element,
-for example, but we cannot in a @code{<p>} element.
+for example, but we cannot in a @code{<p>} element, without
+affecting the content.
 @c JP
 終了ダグの後に改行をいれないのは意図的なものです。@emph{改行が意味をも
 つかどうかは外側の文脈に依存するからです}。たとえば、@code{<head>}要素
-の直下にある要素の後に改行をいれることはできますが、@code{<p>}要素のな
-かにあればできません。
+の直下にある要素の後に改行を入れてもテキストの内容には影響を与えませんが、
+@code{<p>}要素中で改行を入れるとそれは内容の一部となってしまいます。
 @c COMMON
 
 @c EN
@@ -19478,7 +19637,7 @@ the EOF condition is regarded as an error.
 @item
 文字、文字セット、シンボル @code{*eof*} の任意の組み合わせのリスト。
 @end itemize
-[That denotes a set of characters.] シンボル @code{*eof*} が含まれる場合、
+これらにより文字の集合が表現されます。シンボル @code{*eof*} が含まれる場合、
 EOF の条件もまた含まれます。@code{*eof*} が含まれない場合、EOF の条件は
 エラーとして扱われます。
 @c COMMON

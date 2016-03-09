@@ -2670,9 +2670,11 @@ static void process_queued_requests(ScmVM *vm)
        See Scm_ThreadStop() in ext/threads/threads.c */
     if (vm->stopRequest) {
         SCM_INTERNAL_MUTEX_SAFE_LOCK_BEGIN(vm->vmlock);
-        /* Double check, since stopRequest can be canceled between the above
-           two lines. */
         switch (vm->stopRequest) {
+        case 0:
+            /* stopRequest is canceled between the last check and
+               LOCK_BEGIN. We do nothing. */
+            break;
         case SCM_VM_REQUEST_SUSPEND:
             vm->stopRequest = 0;
             vm->state = SCM_VM_STOPPED;
@@ -2849,7 +2851,7 @@ void Scm_VMDump(ScmVM *vm)
     ScmEscapePoint *ep = vm->escapePoint;
 
     Scm_Printf(out, "VM %p -----------------------------------------------------------\n", vm);
-    Scm_Printf(out, "   pc: %08x ", vm->pc);
+    Scm_Printf(out, "   pc: %p ", vm->pc);
     Scm_Printf(out, "(%08x)\n", *vm->pc);
     Scm_Printf(out, "   sp: %p  base: %p  [%p-%p]\n", vm->sp, vm->stackBase,
                vm->stack, vm->stackEnd);

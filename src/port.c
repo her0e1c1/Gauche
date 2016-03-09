@@ -35,6 +35,7 @@
 #include "gauche.h"
 #include "gauche/class.h"
 #include "gauche/priv/portP.h"
+#include "gauche/priv/builtin-syms.h"
 
 #include <string.h>
 #include <fcntl.h>
@@ -50,6 +51,10 @@
     (SCM_PORT(obj)->src.buf.mode & SCM_PORT_BUFFER_MODE_MASK)
 #define SCM_PORT_BUFFER_SIGPIPE_SENSITIVE_P(obj) \
     (SCM_PORT(obj)->src.buf.mode & SCM_PORT_BUFFER_SIGPIPE_SENSITIVE)
+
+/* Parameter location for the global reader lexical mode, from which
+   ports inherit. */
+static ScmParameterLoc readerLexicalMode;
 
 /*================================================================
  * Class stuff
@@ -174,8 +179,7 @@ static void port_finalize(ScmObj obj, void* data)
  */
 static ScmPort *make_port(ScmClass *klass, int dir, int type)
 {
-    ScmPort *port = SCM_ALLOCATE(ScmPort, klass);
-    SCM_SET_CLASS(port, klass);
+    ScmPort *port = SCM_NEW_INSTANCE(ScmPort, klass);
     port->direction = dir;
     port->type = type;
     port->scrcnt = 0;
@@ -196,6 +200,10 @@ static ScmPort *make_port(ScmClass *klass, int dir, int type)
     port->line = 1;
 
     Scm_RegisterFinalizer(SCM_OBJ(port), port_finalize, NULL);
+
+    /* Default reader lexical mode */
+    Scm_PortAttrSetUnsafe(port, SCM_SYM_READER_LEXICAL_MODE,
+                          Scm_ReaderLexicalMode());
 
     return port;
 }
@@ -340,14 +348,35 @@ int Scm_FdReady(int fd, int dir)
         return SCM_FD_READY;
     } else {
         HANDLE h = (HANDLE)_get_osfhandle(fd);
-        DWORD avail;
         if (h == INVALID_HANDLE_VALUE) return SCM_FD_READY;
-        if (PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL) == 0) {
-            /* We assume the port isn't an end of a pipe. */
-            return SCM_FD_UNKNOWN;
+
+        /* pipe */
+        DWORD avail;
+        if (PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL) != 0) {
+            if (avail == 0) return SCM_FD_WOULDBLOCK;
+            else return SCM_FD_READY;
         }
-        if (avail == 0) return SCM_FD_WOULDBLOCK;
-        else return SCM_FD_READY;
+
+        /* socket */
+        int optval;
+        int optlen;
+        optlen = sizeof(optval);
+        if (getsockopt((SOCKET)h, SOL_SOCKET, SO_TYPE, (char*)&optval, &optlen) != SOCKET_ERROR) {
+            fd_set fds;
+            int r;
+            struct timeval tm;
+            FD_ZERO(&fds);
+            FD_SET((SOCKET)h, &fds);
+            tm.tv_sec = tm.tv_usec = 0;
+            /* NB: The first argument of select() is ignored on Windows */
+            SCM_SYSCALL(r, select(0, &fds, NULL, NULL, &tm));
+            if (r < 0) Scm_SysError("select failed");
+            if (r > 0) return SCM_FD_READY;
+            else       return SCM_FD_WOULDBLOCK;
+        }
+
+        /* other */
+        return SCM_FD_UNKNOWN;
     }
 #else  /*!HAVE_SELECT && !GAUCHE_WINDOWS */
     return SCM_FD_UNKNOWN;
@@ -609,6 +638,54 @@ void Scm_SetPortCaseFolding(ScmPort *port, int folding)
     } else {
         SCM_PORT_FLAGS(port) &= ~SCM_PORT_CASE_FOLD;
     }
+}
+
+/* Port's reader lexical mode is set at port creation, taken from
+   readerLexicalMode parameter.  It may be altered by reader directive
+   such as #!r7rs.
+   The possible value is the same as the global reader lexical mode,
+   i.e.  one of the symbols legacy, warn-legacy, permissive or strict-r7.
+*/
+ScmObj Scm_GetPortReaderLexicalMode(ScmPort *port)
+{
+    /* We let it throw an error if there's no reader-lexical-mode attr.
+       It must be set in the constructor. */
+    return Scm_PortAttrGet(port, SCM_SYM_READER_LEXICAL_MODE, SCM_UNBOUND);
+}
+
+void Scm_SetPortReaderLexicalMode(ScmPort *port, ScmObj mode)
+{
+    /*The check is duplicatd in Scm_SetReaderLexicalMode; refactoring needed.*/
+    if (!(SCM_EQ(mode, SCM_SYM_LEGACY)
+          || SCM_EQ(mode, SCM_SYM_WARN_LEGACY)
+          || SCM_EQ(mode, SCM_SYM_PERMISSIVE)
+          || SCM_EQ(mode, SCM_SYM_STRICT_R7))) {
+        Scm_Error("reader-lexical-mode must be one of the following symbols:"
+                  " legacy, warn-legacy, permissive, strict-r7, but got %S",
+                  mode);
+    }
+    Scm_PortAttrSet(port, SCM_SYM_READER_LEXICAL_MODE, mode);
+}
+
+/* global reader lexical mode. */
+ScmObj Scm_SetReaderLexicalMode(ScmObj mode)
+{
+    if (!(SCM_EQ(mode, SCM_SYM_LEGACY)
+          || SCM_EQ(mode, SCM_SYM_WARN_LEGACY)
+          || SCM_EQ(mode, SCM_SYM_PERMISSIVE)
+          || SCM_EQ(mode, SCM_SYM_STRICT_R7))) {
+        Scm_Error("reader-lexical-mode must be one of the following symbols:"
+                  " legacy, warn-legacy, permissive, strict-r7, but got %S",
+                  mode);
+    }
+    ScmObj prev_mode = Scm_ParameterRef(Scm_VM(), &readerLexicalMode);
+    Scm_ParameterSet(Scm_VM(), &readerLexicalMode, mode);
+    return prev_mode;
+}
+
+ScmObj Scm_ReaderLexicalMode()
+{
+    return Scm_ParameterRef(Scm_VM(), &readerLexicalMode);
 }
 
 /* flushes the buffer, to make a room of cnt bytes.
@@ -1735,6 +1812,11 @@ void Scm__InitPort(void)
     Scm_InitStaticClass(&Scm_CodingAwarePortClass, "<coding-aware-port>",
                         Scm_GaucheModule(), port_slots, 0);
 
+    /* This must be done before *any* port is created. */
+    Scm_DefinePrimitiveParameter(Scm_GaucheModule(), "reader-lexical-mode",
+                                 SCM_OBJ(SCM_SYM_PERMISSIVE),
+                                 &readerLexicalMode);
+
     scm_stdin  = Scm_MakePortWithFd(SCM_MAKE_STR("(standard input)"),
                                     SCM_PORT_INPUT, 0,
                                     SCM_PORT_BUFFER_FULL, TRUE);
@@ -1787,51 +1869,125 @@ void Scm__InitPort(void)
 static ScmInternalMutex win_console_mutex;
 static int win_console_created = FALSE;
 
-static int trapper_flusher(ScmPort *p, int cnt, int forcep)
+static void prepare_console_and_stdio(const char *devname, int flags,
+                                      DWORD nStdHandle, int fd,
+                                      int *initialized)
 {
-    size_t nwrote = 0;
-    int size = SCM_PORT_BUFFER_AVAIL(p);
-    char *buf = p->src.buf.buffer;
+    HANDLE h;
+    SECURITY_ATTRIBUTES sa;
+    int temp_fd = -1;
+    int err = 0;
+#define ERR_CREATEFILE 1
+#define ERR_OPEN_OSFHANDLE 2
+#define ERR_DUP2 3
+#define ERR_SETSTDHANDLE 4
 
     SCM_INTERNAL_MUTEX_LOCK(win_console_mutex);
     if (!win_console_created) {
-        AllocConsole();
-        freopen("CONOUT$", "w", stdout);
         win_console_created = TRUE;
+        AllocConsole();
+    }
+    if (!(*initialized)) {
+        /* NB: Double fault will be caught in the error handling
+           mechanism, so we don't need to worry it here. */
+        sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+        sa.lpSecurityDescriptor = NULL;
+        sa.bInheritHandle = TRUE;
+        h = CreateFile(SCM_MBS2WCS(devname),
+                       GENERIC_READ | GENERIC_WRITE,
+                       FILE_SHARE_READ | FILE_SHARE_WRITE,
+                       &sa, OPEN_EXISTING, 0, NULL);
+        if (h == INVALID_HANDLE_VALUE) {
+            err = ERR_CREATEFILE;
+        } else if ((temp_fd = _open_osfhandle((intptr_t)h, flags)) < 0) {
+            err = ERR_OPEN_OSFHANDLE;
+        } else if (_dup2(temp_fd, fd) < 0) {
+            err = ERR_DUP2;
+        } else if (SetStdHandle(nStdHandle, (HANDLE)_get_osfhandle(fd)) == 0) {
+            err = ERR_SETSTDHANDLE;
+        } else {
+            *initialized = TRUE;
+        }
     }
     SCM_INTERNAL_MUTEX_UNLOCK(win_console_mutex);
 
-    while ((!forcep && nwrote == 0) || (forcep && nwrote < cnt)) {
-        size_t r = fwrite(buf, 1, size, stdout);
-        if (ferror(stdout)) {
-            /* NB: Double fault will be caught in the error handling
-               mechanism, so we don't need to worry it here. */
-            Scm_Error("output to CONOUT$ failed");
-        }
-        nwrote += r;
-        buf += r;
+    if (temp_fd >= 0) close(temp_fd);
+    switch (err) {
+    case ERR_CREATEFILE:
+        Scm_SysError("CreateFile(%s) failed", devname);
+        break;                  /* Dummy */
+    case ERR_OPEN_OSFHANDLE:
+        CloseHandle(h);
+        Scm_SysError("_open_osfhandle failed (fd = %d)", fd);
+        break;                  /* Dummy */
+    case ERR_DUP2:
+        CloseHandle(h);
+        Scm_SysError("dup2(%d) failed (osf_handle)", fd);
+        break;                  /* Dummy */
+    case ERR_SETSTDHANDLE:
+        CloseHandle(h);
+        Scm_SysError("SetStdHandle(%d) failed (fd = %d)", (int)nStdHandle, fd);
+        break;                  /* Dummy */
     }
-    fflush(stdout);
-    return nwrote;
+
+#undef ERR_CREATEFILE
+#undef ERR_OPEN_OSFHANDLE
+#undef ERR_DUP2
+#undef ERR_SETSTDHANDLE
 }
 
-static ScmObj make_trapper_port()
+static int trapper_filler(ScmPort *p, int cnt)
+{
+    static int initialized = FALSE;
+    prepare_console_and_stdio("CONIN$",  _O_RDONLY | _O_BINARY,
+                              STD_INPUT_HANDLE,  0, &initialized);
+    return file_filler(p, cnt);
+}
+
+static int trapper_flusher1(ScmPort *p, int cnt, int forcep)
+{
+    static int initialized = FALSE;
+    prepare_console_and_stdio("CONOUT$", _O_WRONLY | _O_BINARY,
+                              STD_OUTPUT_HANDLE, 1, &initialized);
+    return file_flusher(p, cnt, forcep);
+}
+
+static int trapper_flusher2(ScmPort *p, int cnt, int forcep)
+{
+    static int initialized = FALSE;
+    prepare_console_and_stdio("CONOUT$", _O_WRONLY | _O_BINARY,
+                              STD_ERROR_HANDLE,  2, &initialized);
+    return file_flusher(p, cnt, forcep);
+}
+
+static ScmObj make_trapper_port(ScmObj name, int direction,
+                                int fd, int bufmode)
 {
     ScmPortBuffer bufrec;
 
-    bufrec.mode = SCM_PORT_BUFFER_LINE;
     bufrec.buffer = NULL;
     bufrec.size = 0;
-    bufrec.filler = NULL;
-    bufrec.flusher = trapper_flusher;
-    bufrec.closer = NULL;
-    bufrec.ready = NULL;
-    bufrec.filenum = NULL;
+    bufrec.mode = bufmode;
+    if (fd == 0) {
+        bufrec.filler = trapper_filler;
+    } else {
+        bufrec.filler = NULL;
+    }
+    if (fd == 1) {
+        bufrec.flusher = trapper_flusher1;
+    } else if (fd == 2) {
+        bufrec.flusher = trapper_flusher2;
+    } else {
+        bufrec.flusher = NULL;
+    }
+    bufrec.closer = file_closer;
+    bufrec.ready = file_ready;
+    bufrec.filenum = file_filenum;
+    bufrec.data = (void*)(intptr_t)fd;
     bufrec.seeker = NULL;
-    bufrec.data = NULL;
-    return Scm_MakeBufferedPort(SCM_CLASS_PORT,
-                                SCM_MAKE_STR("(console output)"),
-                                SCM_PORT_OUTPUT, TRUE, &bufrec);
+    ScmObj p = Scm_MakeBufferedPort(SCM_CLASS_PORT, name, direction, TRUE,
+                                    &bufrec);
+    return p;
 }
 
 /* This is supposed to be called from application main(), before any
@@ -1840,10 +1996,10 @@ void Scm__SetupPortsForWindows(int has_console)
 {
     if (!has_console) {
         static int initialized = FALSE;
-        static ScmObj orig_stdout = SCM_FALSE;
-        static ScmObj orig_stderr = SCM_FALSE;
+        static volatile ScmObj orig_stdin  = SCM_FALSE;
+        static volatile ScmObj orig_stdout = SCM_FALSE;
+        static volatile ScmObj orig_stderr = SCM_FALSE;
         if (!initialized) {
-            ScmObj trapperPort = make_trapper_port();
             initialized = TRUE;
             SCM_INTERNAL_MUTEX_INIT(win_console_mutex);
             /* Original scm_stdout and scm_stderr holds ports that are
@@ -1852,10 +2008,21 @@ void Scm__SetupPortsForWindows(int has_console)
                those ports are GC-ed), causing complications in the code
                that assumes fds 0, 1 and 2 are reserved.  To make things
                easier, we just save the original ports. */
+            orig_stdin  = scm_stdin;
             orig_stdout = scm_stdout;
             orig_stderr = scm_stderr;
-            scm_stdout = trapperPort;
-            scm_stderr = trapperPort;
+            /* We know the destination is allocated Windows Console, so we
+               just use fixed buffered modes. */
+            scm_stdin  = make_trapper_port(SCM_MAKE_STR("(standard input)"),
+                                           SCM_PORT_INPUT, 0,
+                                           SCM_PORT_BUFFER_FULL);
+            scm_stdout = make_trapper_port(SCM_MAKE_STR("(standard output)"),
+                                           SCM_PORT_OUTPUT, 1,
+                                           SCM_PORT_BUFFER_LINE);
+            scm_stderr = make_trapper_port(SCM_MAKE_STR("(standard error output)"),
+                                           SCM_PORT_OUTPUT, 2,
+                                           SCM_PORT_BUFFER_NONE);
+            Scm_VM()->curin  = SCM_PORT(scm_stdin);
             Scm_VM()->curout = SCM_PORT(scm_stdout);
             Scm_VM()->curerr = SCM_PORT(scm_stderr);
         }

@@ -1,3 +1,133 @@
+2016-01-31  Shiro Kawai  <shiro@acm.org>
+
+	* lib/gauche/macroutil.scm (quasirename): Renamed from with-renaming
+	  to (1) indicate it is a macro and (2) can be used like quasiquote.
+
+2016-01-28  Shiro Kawai  <shiro@acm.org>
+
+	* lib/rfc/http.scm (start-socket-connection): properly handle
+	  ipv6-style server address spec, e.g. "[::1]:8888".
+
+2016-01-23  Shiro Kawai  <shiro@acm.org>
+
+	* src/gauche/class.h, src/class.c: Add Scm_Allocate() API.
+
+2016-01-22  Shiro Kawai  <shiro@acm.org>
+
+	* src/gauche/class.h, src/class.c: API clean up on allocation
+	  protocol.   Dropped Scm_ObjectAllocate, for it is trivial and
+	  it's rather confusing to have.  Renamed SCM_ALLOCATE and
+	  Scm_AllocateInstance for SCM_NEW_INSTANCE and Scm_NewInstance,
+	  to indicate they're lowest level of API (akin to SCM_NEW family)
+	  that handles very raw allocation (with minimal initialization).
+	  We also call SCM_SET_CLASS in Scm_NewInstance, for they should
+	  always go together anyway.  The old API is kept during 0.9.x
+	  series but will be removed on 1.0.  See the comment in
+	  class.h for the details.
+
+2016-01-21  Shiro Kawai  <shiro@acm.org>
+
+	* lib/compat/chibi-test.scm: Handle 'include' form inside
+	  chibi-test specially, so that we can say
+	  (chibi-test (include "test-file-written-for-chibi.scm")).
+
+2016-01-11  Shiro Kawai  <shiro@acm.org>
+
+	* src/unicode-data.scm: Updated to Unicode 8.0.0
+
+2016-01-10  Shiro Kawai  <shiro@acm.org>
+
+	* lib/text/unicode/ucd.scm, src/gen-unicode.scm: Changed the build
+	  flow so that, instead of pre-generating char_attr.c etc., we
+	  keep unicode-data.scm in the source tree, which is generated
+	  from Unicode character database files; char_attr.c is generated
+	  during build (from source tree).
+	* src/unicode-data.scm: Added.  Pre-converted data from Unicode
+	  character database.
+	* src/char_attr.c, ext/text/unicode_attr.h: Removed from the source
+	  tree; they are regenerated during clean build.
+
+2016-01-09  Shiro Kawai  <shiro@acm.org>
+
+	* lib/gauche/cgen/precomp.scm (declare): Moved handling code from
+	  compile-toplevel-form to *special-handlers*, so that macro-generated
+	  declare form can be recognized.
+	* src/compile-0.scm (define-simple-struct): Keep generated macros
+	  in the compiled binary.  Other compiler-related tools may want to
+	  use them.
+
+2015-12-25  Shiro Kawai  <shiro@acm.org>
+
+	* src/port.c (Scm_{Get|Set}PortReaderLexicalMode): Save port-local
+	  reader lexical mode in port attr.  Directives such as #!r7rs
+	  should only affect port-local mode, not the global parameter.
+	* src/read.c: Changed references to Scm_ReaderLexicalMode() to
+	  Scm_GetPortReaderLexicalMode().
+
+2015-12-24  Shiro Kawai  <shiro@acm.org>
+
+	* src/system.c, src/libsys.scm (sys-mkdtemp): Added mkdtemp support.
+	  Patch from enami.
+
+2015-12-22  Shiro Kawai  <shiro@acm.org>
+
+	* configure.ac: AC_PREREQ(2.69) -> AC_PREREQ(2.68), since mingw32
+	  still uses 2.68.  There seems not much disruptive changes
+	  between them (notable exception is CONFIG_SHELL, but we don't
+	  require it in general); so this appears to be a reasonable
+	  workarond.  Once mingw32 adopts autoconf 2.69 we can switch back.
+
+2015-12-19  Shiro Kawai  <shiro@acm.org>
+
+	* ext/text/unicode.scm: Update grapheme-break / word-break
+	  states to support additional break properties added in
+	  Unicode 6.1.0 and after.
+
+2015-12-18  Shiro Kawai <shiro@acm.org>
+
+	* src/gen-unicode.scm, lib/text/unicode/ucd.scm: Move
+	  general UCD-related code to a separate module.
+
+2015-12-13  Shiro Kawai  <shiro@acm.org>
+
+	* ext/vport/vport.scm: Added input generator ports.
+
+2015-12-12  Shiro Kawai  <shiro@acm.org>
+
+	* libsrc/gauche/parameter.scm (parameterize): Fix a bug that failed
+	  to restore parameter values when aother parameter in the same
+	  parameterize throws an error from the filter proc.
+	  See the added test in ext/gauche/test-parameter.scm.
+	  NB: This fix is very inefficient when there are lots of
+	  parameters bound by a parameterize.  The better way is to split
+	  parameter object's operation of appling filter proc and setting
+	  new value.  That would require changing the protocol of
+	  non-<parameter> parameter-like thingies (a procedure that takes
+	  zero or one arguments), though.
+
+2015-12-09  Shiro Kawai  <shiro@acm.org>
+
+	* libsrc/srfi-13.scm (xsubstring): Fixed a bug when from is negative.
+
+2015-12-08  Shiro Kawai  <shiro@acm.org>
+
+	* src/port.c (Scm__SetupPortsForWindows): Set up trapper ports
+	  for all standard ports; so that gosh-noconsole script can
+	  do input from allocted console as well.
+
+2015-12-03  Shiro Kawai  <shiro@acm.org>
+
+	* lib/data/immutable-deque.scm: Added.
+
+2015-11-28  Shiro Kawai  <shiro@acm.org>
+
+	* lib/gauche/cgen/cise.scm: Catch invalid syntax even under
+	  keyword-symbol integration.
+
+2015-11-26  Shiro Kawai  <shiro@acm.org>
+
+	* lib/dict/immutable-map.scm: Renamed from ftree-map.scm.
+
 2015-11-21  Shiro Kawai  <shiro@acm.org>
 
 	* src/number.c (read_real): Fix the case of reading zero with big

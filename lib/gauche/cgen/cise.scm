@@ -594,6 +594,7 @@
                       (receive (type has-init? init)
                           (match spec
                             [()         (values 'ScmObj #f #f)]
+                            [('::)      (errorf "invalid variable decl in let* form: (~s ~s)" var spec)]
                             [(init)     (values 'ScmObj #t init)]
                             [(':: type) (values type #f #f)]
                             [(':: type init) (values type #t init)])
@@ -1208,10 +1209,15 @@
 
   (define (scan in r)
     (match in
+<<<<<<< HEAD
       [() (reverse r)] ; rには結果が格納されてるが、逆順にする
       ; (var :: type . rest) => (cons (var :: rest) (scan rest))
       ; ?はmatchの拡張構文 symbol?が真であることが条件っぽい
       ; s "(match 'b ([? symbol? a] 1))" 1
+=======
+      [() (reverse r)]
+      [([? keyword? xx] . rest) (err xx)]
+>>>>>>> 40627736a79db3824ba90e6d20f1927f63ff4854
       [([? symbol? var] ':: type . rest)
        (scan rest `((,var :: ,type) ,@r))]
       [([? symbol? var] . rest)

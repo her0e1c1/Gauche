@@ -675,9 +675,17 @@ ScmObj Scm_DirName(ScmString *filename)
 #undef ROOTDIR
 #undef SEPARATOR
 
-/* Make mkstemp() work even if the system doesn't have one. */
-int Scm_Mkstemp(char *templat)
+
+#if !defined(HAVE_MKSTEMP) || !defined(HAVE_MKDTEMP)
+/*
+ * Helper function to emulate mkstemp or mkdtemp.  FUNC returns 0 on
+ * success and non-zero otherwize.  NAME is a name of operation
+ * performed by FUNC.  ARG is caller supplied data passed to FUNC.
+ */
+static void emulate_mkxtemp(char *name, char *templat,
+                            int (*func)(char *, void *), void *arg)
 {
+<<<<<<< HEAD
     int fd = -1;
 #if defined(HAVE_MKSTEMP)
     // ある場合は、mkstempをそのまま呼び出す
@@ -688,32 +696,86 @@ int Scm_Mkstemp(char *templat)
     return fd;
 #else   /*!defined(HAVE_MKSTEMP)*/
     /* Emulate mkstemp. */
+=======
+    /* Emulate mkxtemp. */
+>>>>>>> 40627736a79db3824ba90e6d20f1927f63ff4854
     int siz = (int)strlen(templat);
     if (siz < 6) {
-        Scm_Error("mkstemp - invalid template: %s", templat);
+        Scm_Error("%s - invalid template: %s", name, templat);
     }
-#define MKSTEMP_MAX_TRIALS 65535   /* avoid infinite loop */
+#define MKXTEMP_MAX_TRIALS 65535   /* avoid infinite loop */
     {
+<<<<<<< HEAD
       u_long seed = (u_long)time(NULL);  // 現在時刻で乱数生成
         int numtry, flags;
+=======
+        u_long seed = (u_long)time(NULL);
+        int numtry, rv;
+>>>>>>> 40627736a79db3824ba90e6d20f1927f63ff4854
         char suffix[7];
-#if defined(GAUCHE_WINDOWS)
-        flags = O_CREAT|O_EXCL|O_WRONLY|O_BINARY;
-#else  /* !GAUCHE_WINDOWS */
-        flags = O_CREAT|O_EXCL|O_WRONLY;
-#endif /* !GAUCHE_WINDOWS */
-        for (numtry=0; numtry<MKSTEMP_MAX_TRIALS; numtry++) {
+        for (numtry=0; numtry<MKXTEMP_MAX_TRIALS; numtry++) {
             snprintf(suffix, 7, "%06lx", (seed>>8)&0xffffff);
             // 7文字作成をtmplatに上書きすんの?
             memcpy(templat+siz-6, suffix, 7);
+<<<<<<< HEAD
             SCM_SYSCALL(fd, open(templat, flags, 0600)); // file openして終わり
             if (fd >= 0) break;
             seed *= 2654435761UL;
         }
         if (numtry == MKSTEMP_MAX_TRIALS) {
           Scm_Error("mkstemp failed");  // 1度もファイルが作れなかったらerror
+=======
+            rv = (*func)(templat, arg);
+            if (rv == 0) break;
+            seed *= 2654435761UL;
+        }
+        if (numtry == MKXTEMP_MAX_TRIALS) {
+            Scm_Error("%s failed", name);
+>>>>>>> 40627736a79db3824ba90e6d20f1927f63ff4854
         }
     }
+}
+#endif /* !defined(HAVE_MKSTEMP) || !defined(HAVE_MKDTEMP) */
+
+#define MKXTEMP_PATH_MAX 1025  /* Geez, remove me */
+static void build_template(ScmString *templat, char *name)
+{
+    u_int siz;
+    const char *t = Scm_GetStringContent(templat, &siz, NULL, NULL);
+    if (siz >= MKXTEMP_PATH_MAX-6) {
+        Scm_Error("pathname too long: %S", templat);
+    }
+    memcpy(name, t, siz);
+    memcpy(name + siz, "XXXXXX", 6);
+    name[siz+6] = '\0';
+}
+
+#if !defined(HAVE_MKSTEMP)
+static int create_tmpfile(char *templat, void *arg)
+{
+    int *fdp = (int *)arg;
+    int flags;
+
+#if defined(GAUCHE_WINDOWS)
+    flags = O_CREAT|O_EXCL|O_WRONLY|O_BINARY;
+#else  /* !GAUCHE_WINDOWS */
+    flags = O_CREAT|O_EXCL|O_WRONLY;
+#endif /* !GAUCHE_WINDOWS */
+    SCM_SYSCALL(*fdp, open(templat, flags, 0600));
+    return *fdp < 0;
+}
+#endif
+
+/* Make mkstemp() work even if the system doesn't have one. */
+int Scm_Mkstemp(char *templat)
+{
+    int fd = -1;
+#if defined(HAVE_MKSTEMP)
+    SCM_SYSCALL(fd, mkstemp(templat));
+    if (fd < 0) Scm_SysError("mkstemp failed");
+    return fd;
+#else   /*!defined(HAVE_MKSTEMP)*/
+    emulate_mkxtemp("mkstemp", templat, create_tmpfile, &fd);
     return fd;
 #endif /*!defined(HAVE_MKSTEMP)*/
 }
@@ -721,21 +783,45 @@ int Scm_Mkstemp(char *templat)
 
 ScmObj Scm_SysMkstemp(ScmString *templat)
 {
-#define MKSTEMP_PATH_MAX 1025  /* Geez, remove me */
-    char name[MKSTEMP_PATH_MAX];
-    u_int siz;
-    const char *t = Scm_GetStringContent(templat, &siz, NULL, NULL);
-    if (siz >= MKSTEMP_PATH_MAX-6) {
-        Scm_Error("pathname too long: %S", templat);
-    }
-    memcpy(name, t, siz);
-    memcpy(name + siz, "XXXXXX", 6);
-    name[siz+6] = '\0';
+    char name[MKXTEMP_PATH_MAX];
+    build_template(templat, name);
     int fd = Scm_Mkstemp(name);
     ScmObj sname = SCM_MAKE_STR_COPYING(name);
     SCM_RETURN(Scm_Values2(Scm_MakePortWithFd(sname, SCM_PORT_OUTPUT, fd,
                                               SCM_PORT_BUFFER_FULL, TRUE),
                            sname));
+}
+
+#if !defined(HAVE_MKDTEMP)
+static int create_tmpdir(char *templat, void *arg)
+{
+    int r;
+
+#if defined(GAUCHE_WINDOWS)
+    SCM_SYSCALL(r, mkdir(templat));
+#else  /* !GAUCHE_WINDOWS */
+    SCM_SYSCALL(r, mkdir(templat, 0700));
+#endif /* !GAUCHE_WINDOWS */
+    return r < 0;
+}
+#endif
+
+ScmObj Scm_SysMkdtemp(ScmString *templat)
+{
+    char name[MKXTEMP_PATH_MAX];
+    build_template(templat, name);
+
+#if defined(HAVE_MKDTEMP)
+    {
+      char *p = NULL;
+      SCM_SYSCALL(p, mkdtemp(name));
+      if (p == NULL) Scm_SysError("mkdtemp failed");
+    }
+#else   /*!defined(HAVE_MKDTEMP)*/
+    emulate_mkxtemp("mkdtemp", name, create_tmpdir, NULL);
+#endif /*!defined(HAVE_MKDTEMP)*/
+
+    return SCM_MAKE_STR_COPYING(name);
 }
 
 /*===============================================================
@@ -744,9 +830,7 @@ ScmObj Scm_SysMkstemp(ScmString *templat)
 
 static ScmObj stat_allocate(ScmClass *klass, ScmObj initargs)
 {
-    ScmSysStat *s = SCM_ALLOCATE(ScmSysStat, klass);
-    SCM_SET_CLASS(s, SCM_CLASS_SYS_STAT);
-    return SCM_OBJ(s);
+    return SCM_OBJ(SCM_NEW_INSTANCE(ScmSysStat, klass));
 }
 
 SCM_DEFINE_BUILTIN_CLASS(Scm_SysStatClass,
@@ -834,8 +918,7 @@ static ScmClassStaticSlotSpec stat_slots[] = {
 
 static ScmObj time_allocate(ScmClass *klass, ScmObj initargs)
 {
-    ScmTime *t = SCM_ALLOCATE(ScmTime, klass);
-    SCM_SET_CLASS(t, SCM_CLASS_TIME);
+    ScmTime *t = SCM_NEW_INSTANCE(ScmTime, klass);
     t->type = SCM_SYM_TIME_UTC;
     SCM_SET_INT64_ZERO(t->sec);
     t->nsec = 0;
@@ -1165,9 +1248,7 @@ ScmTimeSpec *Scm_GetTimeSpec(ScmObj t, ScmTimeSpec *spec)
 
 static ScmObj tm_allocate(ScmClass *klass, ScmObj initargs)
 {
-    ScmSysTm *st = SCM_ALLOCATE(ScmSysTm, klass);
-    SCM_SET_CLASS(st, SCM_CLASS_SYS_TM);
-    return SCM_OBJ(st);
+    return SCM_OBJ(SCM_NEW_INSTANCE(ScmSysTm, klass));
 }
 
 static void tm_print(ScmObj obj, ScmPort *port, ScmWriteContext *ctx)
@@ -1722,7 +1803,11 @@ ScmObj Scm_SysExec(ScmString *file, ScmObj args, ScmObj iomap,
         }
         /* TODO: We should probably use Windows API to handle various
            options consistently with fork-and-exec case above. */
+#if defined(__MINGW64_VERSION_MAJOR)
+        execvp(program, (char *const*)argv);
+#else  /* !defined(__MINGW64_VERSION_MAJOR) */
         execvp(program, (const char *const*)argv);
+#endif /* !defined(__MINGW64_VERSION_MAJOR) */
         Scm_Panic("exec failed: %s: %s", program, strerror(errno));
     }
     return SCM_FALSE; /* dummy */
@@ -2083,8 +2168,7 @@ static int win_wait_for_handles(HANDLE *handles, int nhandles, int options,
 #ifdef HAVE_SELECT
 static ScmObj fdset_allocate(ScmClass *klass, ScmObj initargs)
 {
-    ScmSysFdset *set = SCM_ALLOCATE(ScmSysFdset, klass);
-    SCM_SET_CLASS(set, SCM_CLASS_SYS_FDSET);
+    ScmSysFdset *set = SCM_NEW_INSTANCE(ScmSysFdset, klass);
     set->maxfd = -1;
     FD_ZERO(&set->fdset);
     return SCM_OBJ(set);
@@ -2753,6 +2837,8 @@ static int win_truncate(HANDLE file, off_t len)
     return 0;
 }
 
+#ifndef __MINGW64_VERSION_MAJOR /* MinGW64 has these */
+
 int truncate(const char *path, off_t len)
 {
     HANDLE file;
@@ -2782,6 +2868,8 @@ int ftruncate(int fd, off_t len)
     if (r < 0) return -1;
     return 0;
 }
+
+#endif /* __MINGW64_VERSION_MAJOR */
 
 unsigned int alarm(unsigned int seconds)
 {

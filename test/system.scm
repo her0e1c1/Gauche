@@ -374,6 +374,29 @@
   ]
  [else])
 
+;; sys-mkstemp/sys-mkdtemp
+(let ()
+  ;; Check if multiple temporary files or directories are created.
+  (define (test-mkxtemp name creator tester remover)
+    (test* name '(#t #t)
+       (let1 temps (map creator (iota 3))
+         (begin0 (list (every tester temps)
+                       (let1 sorted (sort temps)
+                         (every (complement equal?) sorted (cdr sorted))))
+           (for-each remover temps)))))
+
+  (test-mkxtemp "sys-mkstemp"
+                (^_ (receive (p n) (sys-mkstemp "test.o")
+                      (close-output-port p)
+                      n))
+                file-is-regular?
+                sys-unlink)
+
+  (test-mkxtemp "sys-mkdtemp"
+                (^_ (sys-mkdtemp "test.dir"))
+                file-is-directory?
+                sys-rmdir))
+
 ;;-------------------------------------------------------------------
 (test-section "time")
 
@@ -484,27 +507,20 @@
                (close-input-port in) (close-output-port out)
                (list f1 f2 f3))))))
 
-;; Kludge: MinGW32 seems not to support :none, :line buffering,
-;; so we flush and close the output pipe before reading from it.
-
 (test* "pipe and read-block(none)" 2
        (receive (in out) (sys-pipe :buffering :none)
          (display "ab" out)
-         (cond-expand (gauche.os.windows (close-output-port out)) (else))
          (let1 r (string-size (read-block 1000 in))
            (close-input-port in)
-           (cond-expand ((not gauche.os.windows) (close-output-port out))
-                        (else))
+           (close-output-port out)
            r)))
 
 (test* "pipe and read-block(line)" 2
        (receive (in out) (sys-pipe :buffering :line)
          (display "a\n" out)
-         (cond-expand (gauche.os.windows (close-output-port out)) (else))
          (let1 r (string-size (read-block 1000 in))
            (close-input-port in)
-           (cond-expand ((not gauche.os.windows) (close-output-port out))
-                        (else))
+           (close-output-port out)
            r)))
 
 ;;-------------------------------------------------------------------

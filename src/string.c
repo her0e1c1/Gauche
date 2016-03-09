@@ -220,8 +220,12 @@ ScmObj Scm_MakeString(const char *str, ScmSmallInt size, ScmSmallInt len,
 // (string-fill! (make-string 5 #\a) #\X 2 4)  ; aaXXa
 ScmObj Scm_MakeFillString(ScmSmallInt len, ScmChar fill)
 {
+<<<<<<< HEAD
     if (len < 0) Scm_Error("length out of range: %d", len);
     // charオブジェのbyte数取得
+=======
+    if (len < 0) Scm_Error("length out of range: %ld", len);
+>>>>>>> 40627736a79db3824ba90e6d20f1927f63ff4854
     ScmSmallInt csize = SCM_CHAR_NBYTES(fill);
     CHECK_SIZE(csize*len);  // MAX越えない
     // メモリ確保 = 文字 * 文字数
@@ -591,8 +595,12 @@ ScmChar Scm_StringRef(ScmString *str, ScmSmallInt pos, int range_error)
     }
     if (pos < 0 || pos >= len) {
         if (range_error) {
+<<<<<<< HEAD
           // (string-ref "a" 1) とか
             Scm_Error("argument out of range: %d", pos);
+=======
+            Scm_Error("argument out of range: %ld", pos);
+>>>>>>> 40627736a79db3824ba90e6d20f1927f63ff4854
         } else {
           return SCM_CHAR_INVALID;  // #fで評価される
         }
@@ -616,7 +624,7 @@ int Scm_StringByteRef(ScmString *str, ScmSmallInt offset, int range_error)
     const ScmStringBody *b = SCM_STRING_BODY(str);
     if (offset < 0 || offset >= SCM_STRING_BODY_SIZE(b)) {
         if (range_error) {
-            Scm_Error("argument out of range: %d", offset);
+            Scm_Error("argument out of range: %ld", offset);
         } else {
             return -1;
         }
@@ -633,7 +641,7 @@ int Scm_StringByteRef(ScmString *str, ScmSmallInt offset, int range_error)
 const char *Scm_StringBodyPosition(const ScmStringBody *b, ScmSmallInt offset)
 {
     if (offset < 0 || offset > SCM_STRING_BODY_LENGTH(b)) {
-        Scm_Error("argument out of range: %d", offset);
+        Scm_Error("argument out of range: %ld", offset);
     }
     if (SCM_STRING_BODY_INCOMPLETE_P(b)) {
         return (SCM_STRING_BODY_START(b)+offset);
@@ -1667,7 +1675,7 @@ ScmObj Scm_StringPointerCopy(ScmStringPointer *sp1)
 void Scm_StringPointerDump(ScmStringPointer *sp1)
 {
     Scm_Printf(SCM_CUROUT,
-               "<sp addr: %p len: %d size: %d start: %p index: %d cur: %d>\n",
+               "<sp addr: %p len: %d size: %d start: %p index: %d cur: %p>\n",
                sp1, sp1->length, sp1->size, sp1->start, sp1->index,
                sp1->current);
 }

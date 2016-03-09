@@ -355,7 +355,7 @@ typedef struct ScmFlonumRec {
 // 残りの上位24bitがデータ。ただし20bitでUSCを全て表現できるみたい
 // なので、chを8bitずらして3足せば、char objになる
 #define SCM_CHAR_VALUE(obj)     SCM_CHAR(((unsigned long)SCM_WORD(obj)) >> 8)
-#define SCM_MAKE_CHAR(ch)       SCM_OBJ((((unsigned long)(ch))<<8) + 3)
+#define SCM_MAKE_CHAR(ch)       SCM_OBJ((intptr_t)(((unsigned long)(ch))<<8) + 3)
 
 #define SCM_CHAR_INVALID        ((ScmChar)(-1)) /* indicate invalid char */
 #define SCM_CHAR_MAX            (0xffffff)
