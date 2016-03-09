@@ -85,6 +85,7 @@ char *alloca ();
 #include "gauche/bits_inline.h"
 #include "gauche/bignum.h"
 
+// 関数ではなくマクロだと型を明示しなくてよい
 #undef min
 #define min(x, y)   (((x) < (y))? (x) : (y))
 #undef max
@@ -116,7 +117,7 @@ static ScmBignum *make_bignum(int size)
     ScmBignum *b = SCM_NEW_ATOMIC2(ScmBignum*, BIGNUM_SIZE(size));
     SCM_SET_CLASS(b, SCM_CLASS_INTEGER);
     b->size = size;
-    b->sign = 1;
+    b->sign = 1;  // 正の数なら1負の数なら-1っぽい
     return bignum_clear(b);
 }
 

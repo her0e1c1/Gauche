@@ -175,6 +175,7 @@
 
 ; returnは、3つの状態を返す
 ; エラーmsg, 現在の値、残りのストリーム文字列stringではなくlist of chars
+; つまり、文字列における行数や列数の情報は、保持されない(マッチした文字列から算出はできるが)
 ; parse-success?をみるように、#fの場合にtになる
 (define-macro (return-result value s)
   `(values #f ,value ,s))
@@ -598,6 +599,7 @@
 ;;   Does not backtrack by default; if P may consume some input and
 ;;   you want to backtrack later, wrap it with $try.
 ;; parseで消費した場合もありうる(その場合は$tryでラップするみたい?)
+;; ($optional ($try parse))と記述すること! ($try ($optional))だと、parseが失敗したことを検知できない
 (define ($optional parse :optional (fallback #f))
   ($or parse ($return fallback)))
 
